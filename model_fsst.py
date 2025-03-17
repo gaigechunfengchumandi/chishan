@@ -19,8 +19,11 @@ class ECGDataset(Dataset):
 
 
 class ECGClassifier(nn.Module):
-    def __init__(self, input_size=2500):
+    def __init__(self, input_size=2500, num_channels=40):
         super(ECGClassifier, self).__init__()
+        self.num_channels = num_channels
+        
+        # 卷积层保持不变
         self.conv1 = nn.Conv1d(1, 16, kernel_size=5, stride=1, padding=2)
         self.bn1 = nn.BatchNorm1d(16)
         self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
@@ -37,24 +40,40 @@ class ECGClassifier(nn.Module):
         self.bn4 = nn.BatchNorm1d(128)
         self.pool4 = nn.MaxPool1d(kernel_size=2, stride=2)
         
-        # 计算全连接层的输入大小
-        self.fc_input_size = 128 * (input_size // 16)
+        # # 计算全连接层的输入大小
+        # self.fc_input_size = 128 * (input_size // 16)
         
-        self.fc1 = nn.Linear(self.fc_input_size, 256)
+        # 添加全局平均池化层
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        
+        # 修改全连接层
+        self.fc1 = nn.Linear(128 * num_channels, 256)  # 修改输入维度
         self.dropout1 = nn.Dropout(0.5)
         self.fc2 = nn.Linear(256, 64)
         self.dropout2 = nn.Dropout(0.3)
         self.fc3 = nn.Linear(64, 2)  # 二分类问题
         
     def forward(self, x):
-        # 输入形状: [batch_size, 1, sequence_length]
+        # 输入形状: [batch_size, num_channels, sequence_length]
+        batch_size = x.size(0)
+        
+        # 将输入reshape为 (batch_size * num_channels, 1, sequence_length)
+        x = x.view(-1, 1, x.size(2))
+        
+        # 卷积层
         x = self.pool1(torch.relu(self.bn1(self.conv1(x))))
         x = self.pool2(torch.relu(self.bn2(self.conv2(x))))
         x = self.pool3(torch.relu(self.bn3(self.conv3(x))))
         x = self.pool4(torch.relu(self.bn4(self.conv4(x))))
         
+        # 全局平均池化
+        x = self.global_avg_pool(x)
+        
+        # 将特征图reshape回 (batch_size, num_channels, features)
+        x = x.view(batch_size, self.num_channels, -1)
+        
         # 展平
-        x = x.view(x.size(0), -1)
+        x = x.view(batch_size, -1)
         
         # 全连接层
         x = torch.relu(self.fc1(x))
@@ -153,5 +172,8 @@ class ECGClassifier(nn.Module):
 
 # 使用示例
 if __name__ == "__main__":
-    model = ECGClassifier(input_size=2500)
+    model = ECGClassifier(input_size=2500, num_channels=40)
+    x = torch.randn(32, 40, 2500)  # batch_size=32, num_channels=40, sequence_length=2500
+    output = model(x)
+    print(output.shape)  # 应该输出 torch.Size([32, 2])
     model.visualize_simple()

@@ -16,8 +16,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import time
 import pandas as pd
 from tqdm import tqdm
-from model import ECGDataset, ECGClassifier
-from config import PATH_CONFIG, DATA_CONFIG, MODEL_CONFIG, AUGMENTATION_CONFIG
+from model_fsst import ECGDataset, ECGClassifier
+from config_fsst import PATH_CONFIG, DATA_CONFIG, MODEL_CONFIG, AUGMENTATION_CONFIG
 
 # 设置随机种子以确保结果可复现
 torch.manual_seed(42)
@@ -48,7 +48,8 @@ class CustomDataLoader:  # 重命名您的自定义类
         for filename in tqdm(os.listdir(folder_path)):
             file_path = os.path.join(folder_path, filename)
             try:
-                file_data = np.load(file_path)  # 从文件中加载数据 (2500,1)
+                file_data = np.load(file_path).T  # 从文件中加载数据 (2500,40)
+
                 if len(file_data) > 0:  # 确保数据不为空
                     # 标准化数据形状
                     if len(file_data) > target_length:
@@ -99,7 +100,7 @@ def load_data(data_augmentation=DATA_CONFIG['data_augmentation']):
         
         # 检查数据形状
         sample_shape = non_vf_data[0].shape
-        print(f"样本数据形状: {sample_shape}") #(2500, 1)
+        print(f"样本数据形状: {sample_shape}")
         
         # 数据增强 - 只对少数类(VF)进行增强
         if data_augmentation:
@@ -129,8 +130,8 @@ def load_data(data_augmentation=DATA_CONFIG['data_augmentation']):
             print(f"数据增强后的VF窗口数量: {len(vf_data)}")
         
         # 创建标签
-        non_vf_labels = np.zeros(len(non_vf_data))
-        vf_labels = np.ones(len(vf_data))
+        non_vf_labels = np.zeros(len(non_vf_data))  # 非房颤标记为0
+        vf_labels = np.ones(len(vf_data))         # 房颤标记为1
         
         # 合并数据和标签
         print("合并数据...")
@@ -203,7 +204,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     for epoch in range(num_epochs):
         epoch_start_time = time.time()
         
-        # 训练阶段
+        # region 训练阶段
         model.train()
         train_loss = 0.0
         train_correct = 0
@@ -250,8 +251,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         train_acc = train_correct / train_total
         train_losses.append(train_loss)
         train_accs.append(train_acc)
+        # endregion 训练阶段
         
-        # 验证阶段
+        # region 验证阶段
         model.eval()
         val_loss = 0.0
         val_correct = 0
@@ -281,6 +283,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_acc = val_correct / val_total
         val_losses.append(val_loss)
         val_accs.append(val_acc)
+        # endregion 验证阶段
         
         # 更新学习率
         scheduler.step(val_loss)
@@ -465,10 +468,10 @@ def main():
     print(f"训练数据形状: {X_train.shape}")
     
     # 修改数据处理方式，确保维度正确
-    # 将数据从(N, 2500, 1)转换为(N, 1, 2500)，适合conv1d操作
-    X_train = X_train.reshape(X_train.shape[0], 1, X_train.shape[1])
-    X_val = X_val.reshape(X_val.shape[0], 1, X_val.shape[1])
-    X_test = X_test.reshape(X_test.shape[0], 1, X_test.shape[1])
+    # 将数据从(N, 2500, 40)转换为(N, 40, 2500)，适合conv1d操作
+    X_train = X_train.reshape(X_train.shape[0], 40, X_train.shape[1])  # 重塑数据维度：(样本数量, 通道数=40, 序列长度)，使数据格式符合PyTorch的卷积层输入要求
+    X_val = X_val.reshape(X_val.shape[0], 40, X_val.shape[1])
+    X_test = X_test.reshape(X_test.shape[0], 40, X_test.shape[1])
     
     print(f"处理后的训练数据形状: {X_train.shape}")
     

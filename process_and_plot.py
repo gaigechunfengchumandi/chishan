@@ -52,12 +52,12 @@ class ECGProcessor:
         self.non_vf_dir = self.base_output_dir / 'non_vf_segments'
         
         # 图形输出目录
-        self.plot_base_dir = Path(self.config['plot_output_dir'])
-        self.vf_plot_dir = self.plot_base_dir / 'vf_plots'
-        self.non_vf_plot_dir = self.plot_base_dir / 'non_vf_plots'
+        self.picture_base_dir = Path(self.config['picture_base_dir'])
+        self.vf_picture_dir = self.picture_base_dir / 'vf_picture'
+        self.non_vf_picture_dir = self.picture_base_dir / 'non_vf_picture'
         
         # 创建所有必要的目录
-        for directory in [self.vf_dir, self.non_vf_dir, self.vf_plot_dir, self.non_vf_plot_dir]:
+        for directory in [self.vf_dir, self.non_vf_dir, self.vf_picture_dir, self.non_vf_picture_dir]:
             directory.mkdir(parents=True, exist_ok=True)
 
     def setup_plot_style(self):
@@ -66,6 +66,7 @@ class ECGProcessor:
         self.figure_size = self.config['figure_size']
         self.dpi = self.config['dpi'] 
         
+    # region 根据annotations_file 提取室颤和非室颤片段
     def extract_segments(self):
         """提取室颤和非室颤片段"""
         annotations_df = pd.read_csv(self.config['annotations_file'])  # 从Excel文件读取标注数据
@@ -79,90 +80,6 @@ class ECGProcessor:
                         self._process_single_record(record_name, time_info)  # 处理单条记录
             except Exception as e:
                 print(f"Error processing record {record_name}: {str(e)}")  # 打印错误信息
-                
-    def plot_segments(self):
-        """绘制所有提取的片段"""
-        # 处理室颤片段
-        self._plot_directory_segments(self.vf_dir, "VF")
-        # 处理非室颤片段
-        self._plot_directory_segments(self.non_vf_dir, "Non-VF")
-
-    def _plot_directory_segments(self, directory: Path, segment_type: str):
-        """处理指定目录中的所有片段"""
-        npy_files = list(directory.glob('*.npy'))
-        for npy_file in npy_files:
-            try:
-                self._process_and_plot_single_file(npy_file, segment_type)
-            except Exception as e:
-                print(f"Error plotting {npy_file.name}: {str(e)}")
-                plt.close()
-                
-    def _process_and_plot_single_file(self, npy_file: Path, segment_type: str):
-        """处理并绘制单个文件的信号，使用内存映射和优化的绘图方法"""
-        # 使用内存映射加载信号数据，减少内存使用
-        signal = np.load(npy_file, mmap_mode='r')
-        # 获取文件名（不带路径和扩展名）
-        filename = npy_file.stem
-        # 从配置中获取采样率
-        fs = self.config['sampling_rate']
-        # 计算每个窗口的采样点数（窗口时长 * 采样率）
-        window_size = int(self.config['window_seconds'] * fs)
-        # 计算需要的总窗口数，使用向上取整确保覆盖所有数据
-        total_windows = int(np.ceil(signal.shape[0] / window_size))
-        
-        # 创建窗口数据保存目录，分别为VF和非VF创建不同的子目录
-        if segment_type == "VF":
-            window_data_dir = self.vf_dir.parent / 'window_data' / 'vf_windows'
-        else:
-            window_data_dir = self.non_vf_dir.parent / 'window_data' / 'non_vf_windows'
-        window_data_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 根据片段类型选择输出目录
-        plot_dir = self.vf_plot_dir if segment_type == "VF" else self.non_vf_plot_dir
-        
-        # 遍历每个窗口进行保存和绘图
-        for window_idx in range(total_windows):
-            # 计算窗口起始索引
-            start_idx = window_idx * window_size
-            # 计算窗口结束索引，确保不超过信号长度
-            end_idx = min((window_idx + 1) * window_size, signal.shape[0])
-            
-            # 直接引用原始数据的视图，而不是复制数据
-            window_data = signal[start_idx:end_idx]
-            
-            # 保存窗口数据（如果需要）
-            save_path = window_data_dir / f'{filename}_window{window_idx+1}.npy'
-            np.save(str(save_path), window_data)
-            
-            # 使用更高效的绘图方法
-            self._plot_window_optimized(window_data, window_idx, total_windows, filename, fs, segment_type, plot_dir)
-            
-    def _plot_window_optimized(self, window_data, window_idx, total_windows, filename, fs, segment_type, plot_dir):
-        """使用优化的方法绘制单个时间窗口的数据"""
-        # 使用面向对象的接口创建图形和轴，提高性能
-        fig, ax = plt.subplots(figsize=self.figure_size)
-        
-        # 生成时间轴数据（只生成一次）
-        time_axis = np.linspace(0, len(window_data) / fs, num=len(window_data), endpoint=False)
-        
-        # 一次性绘制所有导联数据
-        for lead_idx in range(window_data.shape[1]):
-            ax.plot(time_axis, window_data[:, lead_idx], label=f'Lead {lead_idx+1}')
-        
-        # 设置图形属性
-        ax.set_title(f'{segment_type} Signal: {filename}\n(Window {window_idx+1}/{total_windows})')
-        ax.set_xlabel('Time (seconds)')
-        ax.set_ylabel('Amplitude')
-        ax.set_xlim(0, self.config['window_seconds'])
-        ax.grid(True)
-        ax.legend()
-        
-        # 构建输出路径
-        output_path = plot_dir / f'{filename}_window{window_idx+1}.png'
-        
-        # 保存图形并立即关闭，释放内存
-        fig.savefig(str(output_path), dpi=self.dpi, bbox_inches='tight')
-        plt.close(fig)
         
     def _process_single_record(self, record_name: str, time_info: str):
         """处理单条记录"""
@@ -178,7 +95,7 @@ class ECGProcessor:
         remaining_segments = self._get_remaining_segments(record.sig_len, bracket_periods, record.fs, time_info)  # 获取非室颤片段的时间区间
         for start_time, end_time in remaining_segments:  # 遍历每个非室颤片段的时间区间
             self._save_segment(record_path, record.fs, start_time, end_time, record_name, is_vf=False)  # 保存非室颤片段
-            
+    
     def _save_segment(self, record_path, fs, start_time, end_time, record_name, is_vf):
         """保存信号片段"""
         try:
@@ -206,7 +123,7 @@ class ECGProcessor:
             segment_type = "VF" if is_vf else "non-VF"
             print(f"Error processing {segment_type} segment {start_time}-{end_time} "
                   f"for record {record_name}: {str(e)}")
-            
+      
     @staticmethod
     def _extract_cu_segment(time_str: str) -> List[Tuple[float, float]]:
         """从时间字符串中提取被方括号标记的时间段，并过滤掉噪声区域"""
@@ -334,20 +251,232 @@ class ECGProcessor:
             return filtered_segments
             
         return remaining_segments  # 返回所有非室颤时间区间列表
+    # endregion                
+    
+    # region 分别处理室颤、非室颤的片段，截取成窗口数据
+    def process_segments(self):
+        """绘制所有提取的片段"""
+        # 处理室颤片段
+        self._process_directory_segments(self.vf_dir, "VF")
+        # 处理非室颤片段
+        self._process_directory_segments(self.non_vf_dir, "Non-VF")
+
+    def _process_directory_segments(self, directory: Path, segment_type: str):
+        """处理指定目录中的所有片段并转换为窗口数据"""
+        npy_files = list(directory.glob('*.npy'))
+        
+        for npy_file in npy_files:
+            try:
+                # 使用内存映射加载信号数据，减少内存使用
+                signal = np.load(npy_file, mmap_mode='r')
+                # 获取文件名（不带路径和扩展名）
+                filename = npy_file.stem
+                # 从配置中获取采样率
+                fs = self.config['sampling_rate']
+                # 计算每个窗口的采样点数（窗口时长 * 采样率）
+                window_size = int(self.config['window_seconds'] * fs)
+                # 计算需要的总窗口数，使用向上取整确保覆盖所有数据
+                total_windows = int(np.ceil(signal.shape[0] / window_size))
+                
+                # 创建窗口数据保存目录，分别为VF和非VF创建不同的子目录
+                if segment_type == "VF":
+                    window_data_dir = self.vf_dir.parent / 'window_data' / 'vf_windows'
+                else:
+                    window_data_dir = self.non_vf_dir.parent / 'window_data' / 'non_vf_windows'
+                window_data_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 根据片段类型选择输出目录
+                plot_dir = selicture if segment_type == "VF" else selicture
+                
+                # 遍历每个窗口进行保存和绘图
+                for window_idx in range(total_windows):
+                    # 计算窗口起始索引
+                    start_idx = window_idx * window_size
+                    # 计算窗口结束索引，确保不超过信号长度
+                    end_idx = min((window_idx + 1) * window_size, signal.shape[0])
+                    
+                    # 直接引用原始数据的视图，而不是复制数据
+                    window_data = signal[start_idx:end_idx]
+                    
+                    # 保存窗口数据（如果需要）
+                    save_path = window_data_dir / f'{filename}_window{window_idx+1}.npy'
+                    np.save(str(save_path), window_data)
+                    
+            except Exception as e:
+                print(f"Error processing {npy_file.name}: {str(e)}")
+    
+  
+    # endregion
+    
+    # region 处理室颤与非室颤交界处的片段
+    def process_transition_segments(self):
+        """处理室颤与非室颤交界处的片段，截取滑动窗口数据"""
+        print("开始处理室颤与非室颤交界处的片段...")
+        
+        # 读取标注文件
+        annotations_df = pd.read_csv(self.config['annotations_file'])
+        grouped = annotations_df.groupby('Record')
+        
+        # 创建交界处窗口数据保存目录
+        transition_dir = Path(self.config['trainstion_output_dir'])
+        transition_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 遍历每个记录
+        for record_name, group in grouped:
+            try:
+                for _, row in group.iterrows():
+                    time_info = row['Symbol & Time']
+                    if pd.isna(time_info):
+                        continue
+                    
+                    # 处理单个记录的交界处
+                    self._process_transition_for_record(record_name, time_info, transition_dir)
+                    
+            except Exception as e:
+                print(f"处理记录 {record_name} 的交界处时出错: {str(e)}")
+        
+        print(f"交界处片段处理完成，数据已保存至: {transition_dir}")
+    
+    def _process_transition_for_record(self, record_name: str, time_info: str, output_dir: Path):
+        """处理单个记录的室颤与非室颤交界处"""
+        # 读取记录数据
+        record_path = self.source_dir / record_name
+        try:
+            record = wfdb.rdrecord(str(record_path))
+        except Exception as e:
+            print(f"无法读取记录 {record_name}: {str(e)}")
+            return
+        
+        # 提取室颤开始位置
+        vf_starts = []
+        for line in time_info.split('\n'):
+            if '[' in line:
+                try:
+                    time_part = line.split(' at ')[-1]
+                    minutes, seconds = map(int, time_part.split(':'))
+                    total_seconds = minutes * 60 + seconds
+                    vf_starts.append(total_seconds)
+                except Exception as e:
+                    print(f"解析时间字符串失败 '{line}': {str(e)}")
+        
+        # 对每个室颤开始位置截取滑动窗口
+        fs = record.fs  # 采样率
+        window_seconds = self.config['window_seconds']  # 窗口大小（秒）
+        window_size = int(window_seconds * fs)  # 窗口大小（采样点）
+        slide_seconds = 0.5  # 滑动步长（秒）
+        slide_size = int(slide_seconds * fs)  # 滑动步长（采样点）
+        num_windows = 20  # 每个交界处截取的窗口数量
+        
+        for vf_start in vf_starts:
+            # 计算第一个窗口的起始位置
+            first_window_start = max(0, vf_start - num_windows * slide_seconds)
+            
+            for i in range(num_windows):
+                # 计算当前窗口的起始和结束位置
+                window_start_time = first_window_start + i * slide_seconds
+                window_end_time = window_start_time + window_seconds
+                
+                # 转换为采样点索引
+                start_sample = int(window_start_time * fs)
+                end_sample = int(window_end_time * fs)
+                
+                # 确保不超出记录长度
+                if end_sample > record.sig_len:
+                    print(f"警告: 窗口 {i+1} 超出记录 {record_name} 的长度，跳过")
+                    continue
+                
+                try:
+                    # 读取信号片段
+                    segment = wfdb.rdrecord(
+                        str(record_path),
+                        sampfrom=start_sample,
+                        sampto=end_sample
+                    )
+                    
+                    # 构建输出文件名和路径
+                    # 标记窗口相对于室颤开始位置的时间偏移
+                    time_offset = window_start_time - vf_start
+                    offset_label = "before" if time_offset < 0 else "after"
+                    abs_offset = abs(time_offset)
+                    
+                    output_filename = f"{record_name}_transition_t{vf_start}_offset{offset_label}{abs_offset}_window{i+1}.npy"
+                    output_path = output_dir / output_filename
+                    
+                    # 保存窗口数据
+                    np.save(str(output_path), segment.p_signal)
+                    print(f"已保存交界处窗口: {output_filename}")
+                    
+                except Exception as e:
+                    print(f"处理交界处窗口时出错 (记录: {record_name}, 时间: {window_start_time}-{window_end_time}): {str(e)}")
+    # endregion
+
+    
+    # region 绘制窗口数据 
+    def plot_from_folder(self, folder_path: str, output_dir: str):
+        """从指定文件夹读取数据并绘制保存图形"""
+        
+        # 获取文件夹中所有的npy文件
+        npy_files = list(Path(folder_path).glob('*.npy'))
+        
+        # 将输出目录转换为Path对象
+        output_dir_path = Path(output_dir)
+        # 确保输出目录存在
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+        
+        for npy_file in npy_files:
+            try:
+                # 读取数据
+                window_data = np.load(npy_file)
+                filename = npy_file.stem
+                
+                # 创建图形和轴
+                fig, ax = plt.subplots(figsize=self.figure_size)
+                
+                # 生成时间轴数据
+                time_axis = np.linspace(0, len(window_data) / self.config['sampling_rate'], 
+                                      num=len(window_data), endpoint=False)
+                
+                # 绘制所有导联数据
+                for lead_idx in range(window_data.shape[1]):
+                    ax.plot(time_axis, window_data[:, lead_idx], label=f'Lead {lead_idx+1}')
+                
+                # 设置图形属性
+                ax.set_title(f'Signal: {filename}')
+                ax.set_xlabel('Time (seconds)')
+                ax.set_ylabel('Amplitude')
+                ax.set_xlim(0, self.config['window_seconds'])
+                ax.grid(True)
+                ax.legend()
+                
+                # 构建输出路径并保存
+                output_path = output_dir_path / f'{filename}.png'
+                fig.savefig(str(output_path), dpi=self.dpi, bbox_inches='tight')
+                plt.close(fig)
+                
+            except Exception as e:
+                print(f"Error plotting {npy_file.name}: {str(e)}")
+                plt.close()
+
+    # endregion 
+       
 
 def main():
     """主程序入口"""
     config = {
         'data_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/cu-ventricular-tachyarrhythmia-database-1.0.0',
-        'segment_output_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/extracted_segments',
-        'plot_output_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/plots',
-        'annotations_file': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/annotations.csv',
+        'segment_output_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess',
+        'annotations_file': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/annotations.csv',
         'sampling_rate': 250,
         'window_seconds': 10,
         'plot_style': 'darkgrid',
         'figure_size': (15, 5),
         'dpi': 300,
-        'min_file_size_kb': 20  # 添加最小文件大小要求
+        'min_file_size_kb': 20,  # 添加最小文件大小要求
+        'window_data_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data',
+        'picture_base_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/picture',
+        'trainstion_output_dir':'/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data',
+        'trainstion_picture_dir':'/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/picture'
+        
     }
     
     processor = ECGProcessor(config)
@@ -357,9 +486,17 @@ def main():
     # processor.extract_segments()
     print("片段提取完成！")
     
-    # 步骤2：绘制图形
+    # 步骤2：处理室颤与非室颤交界处的片段
+    print("开始处理室颤与非室颤交界处的片段...")
+    processor.process_transition_segments()
+    print("交界处片段处理完成！")
+    
+    # 步骤3：绘制图形
     print("开始绘制信号图形...")
-    # processor.plot_segments()
+    # window_npy_folder = f"{config['window_data_dir']}/non_vf_windows"
+    # window_picture_folder = f"{config['picture_base_dir']}/non_vf_picture"
+    # processor.plot_from_folder(window_npy_folder, window_picture_folder)
+    processor.plot_from_folder(config['trainstion_output_dir'], config['trainstion_picture_dir'])
     print("图形绘制完成！")
     
 

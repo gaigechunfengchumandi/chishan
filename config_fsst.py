@@ -2,8 +2,8 @@ import torch
 
 # 文件路径配置
 PATH_CONFIG = {
-    'non_vf_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/non_vf_windows',
-    'vf_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows',
+    'non_vf_dir': '/Users/xingyulu/Downloads/fsst_code/data/fsst_signal/non_vf_windows',
+    'vf_dir': '/Users/xingyulu/Downloads/fsst_code/data/fsst_signal/vf_windows',
     'model_save_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/models',
     'plot_dir': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/plots',
     'results_file': '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/results.csv'
@@ -23,7 +23,7 @@ DATA_CONFIG = {
 # 模型配置
 MODEL_CONFIG = {
     'input_size': 2500,  # 输入大小
-    'learning_rate': 1e-3,  # 学习率
+    'learning_rate': 1e-4,  # 学习率
     'weight_decay': 1e-5,  # 权重衰减
     'num_epochs': 50,  # 训练轮数
     'patience': 40,  # 早停耐心值
