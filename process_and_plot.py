@@ -311,8 +311,6 @@ class ECGProcessor:
     # region 处理室颤与非室颤交界处的片段
     def process_transition_segments(self):
         """处理室颤与非室颤交界处的片段，截取滑动窗口数据"""
-        print("开始处理室颤与非室颤交界处的片段...")
-        
         # 读取标注文件
         annotations_df = pd.read_csv(self.config['annotations_file'])
         grouped = annotations_df.groupby('Record')
@@ -335,29 +333,53 @@ class ECGProcessor:
             except Exception as e:
                 print(f"处理记录 {record_name} 的交界处时出错: {str(e)}")
         
-        print(f"交界处片段处理完成，数据已保存至: {transition_dir}")
-    
-    def _process_transition_for_record(self, record_name: str, time_info: str, output_dir: Path):
-        """处理单个记录的室颤与非室颤交界处"""
-        # 读取记录数据
-        record_path = self.source_dir / record_name
-        try:
-            record = wfdb.rdrecord(str(record_path))
-        except Exception as e:
-            print(f"无法读取记录 {record_name}: {str(e)}")
-            return
+        print(f"数据已保存至: {transition_dir}")
+
+    def _extract_vf_periods(self, time_info: str) -> List[Tuple[float, float]]:
+        """
+        从时间信息中提取所有室颤区间
         
-        # 提取室颤开始位置
-        vf_starts = []
+        Args:
+            time_info: 包含室颤开始和结束时间的字符串
+            
+        Returns:
+            室颤区间列表，每个元素为(开始时间, 结束时间)的元组
+        """
+        vf_periods = []
+        start_time = None
+        
+        # 解析时间信息，提取所有室颤区间
         for line in time_info.split('\n'):
-            if '[' in line:
-                try:
-                    time_part = line.split(' at ')[-1]
-                    minutes, seconds = map(int, time_part.split(':'))
-                    total_seconds = minutes * 60 + seconds
-                    vf_starts.append(total_seconds)
-                except Exception as e:
-                    print(f"解析时间字符串失败 '{line}': {str(e)}")
+            try:
+                time_part = line.split(' at ')[-1]
+                minutes, seconds = map(int, time_part.split(':'))
+                total_seconds = minutes * 60 + seconds
+                
+                if '[' in line:  # 室颤开始
+                    start_time = total_seconds
+                elif ']' in line and start_time is not None:  # 室颤结束
+                    vf_periods.append((start_time, total_seconds))
+                    start_time = None
+            except Exception as e:
+                print(f"解析时间字符串失败 '{line}': {str(e)}")
+        
+        return vf_periods
+
+    def _process_transition_windows(self, record_path: Path, record: wfdb.Record, 
+                                   vf_periods: List[Tuple[float, float]], 
+                                   record_name: str, output_dir: Path):
+        """
+        对每个室颤开始位置截取滑动窗口
+        
+        Args:
+            record_path: 记录文件路径
+            record: WFDB记录对象
+            vf_periods: 室颤区间列表
+            record_name: 记录名称
+            output_dir: 输出目录
+        """
+        # 提取所有室颤开始位置用于窗口截取
+        vf_starts = [start for start, _ in vf_periods]
         
         # 对每个室颤开始位置截取滑动窗口
         fs = record.fs  # 采样率
@@ -367,7 +389,7 @@ class ECGProcessor:
         slide_size = int(slide_seconds * fs)  # 滑动步长（采样点）
         num_windows = 20  # 每个交界处截取的窗口数量
         
-        for vf_start in vf_starts:
+        for vf_start in vf_starts:  # 重复操作直至完成所有交界处窗口截取
             # 计算第一个窗口的起始位置
             first_window_start = max(0, vf_start - num_windows * slide_seconds)
             
@@ -386,7 +408,7 @@ class ECGProcessor:
                     continue
                 
                 try:
-                    # 读取信号片段
+                    # 读取10s信号片段
                     segment = wfdb.rdrecord(
                         str(record_path),
                         sampfrom=start_sample,
@@ -402,12 +424,45 @@ class ECGProcessor:
                     output_filename = f"{record_name}_transition_t{vf_start}_offset{offset_label}{abs_offset}_window{i+1}.npy"
                     output_path = output_dir / output_filename
                     
+                    # 创建标签数组，初始化为0（非室颤）
+                    labels = np.zeros((segment.p_signal.shape[0], 1))
+                    
+                    # 为每个采样点分配标签
+                    for sample_idx in range(segment.p_signal.shape[0]):
+                        # 计算当前采样点对应的时间
+                        sample_time = window_start_time + sample_idx / fs
+                        
+                        # 检查该时间点是否在任何室颤区间内
+                        for vf_start_time, vf_end_time in vf_periods:
+                            if vf_start_time <= sample_time < vf_end_time:
+                                labels[sample_idx] = 1  # 室颤
+                                break
+                    
+                    # 将信号数据和标签合并
+                    combined_data = np.hstack((segment.p_signal, labels))
+                    
                     # 保存窗口数据
-                    np.save(str(output_path), segment.p_signal)
-                    print(f"已保存交界处窗口: {output_filename}")
+                    np.save(str(output_path), combined_data)
+                    print(f"已保存交界处窗口: {output_filename} (形状: {combined_data.shape})")
                     
                 except Exception as e:
                     print(f"处理交界处窗口时出错 (记录: {record_name}, 时间: {window_start_time}-{window_end_time}): {str(e)}")
+
+    def _process_transition_for_record(self, record_name: str, time_info: str, output_dir: Path):
+        """处理单个记录的室颤与非室颤交界处"""
+        # 读取记录数据
+        record_path = self.source_dir / record_name
+        try:
+            record = wfdb.rdrecord(str(record_path))
+        except Exception as e:
+            print(f"无法读取记录 {record_name}: {str(e)}")
+            return
+        
+        # 步骤1: 提取所有室颤区间
+        vf_periods = self._extract_vf_periods(time_info)
+        
+        # 步骤2: 对每个室颤开始位置截取滑动窗口
+        self._process_transition_windows(record_path, record, vf_periods, record_name, output_dir)
     # endregion
 
     
