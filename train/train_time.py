@@ -16,8 +16,11 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import time
 import pandas as pd
 from tqdm import tqdm
-from model import ECGDataset, ECGClassifier
-from config import PATH_CONFIG, DATA_CONFIG, MODEL_CONFIG, AUGMENTATION_CONFIG
+# 修改导入路径，使用相对于项目根目录的路径
+import sys
+sys.path.append('/Users/xingyulu/Public/physionet')
+from models.model_cnn import ECGDataset, ECGClassifier
+from config.config_time import PATH_CONFIG, DATA_CONFIG, MODEL_CONFIG, AUGMENTATION_CONFIG
 
 # 设置随机种子以确保结果可复现
 torch.manual_seed(42)

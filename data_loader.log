@@ -247,3 +247,9 @@
 2025-03-15 14:27:04,404 - INFO - 开始加载文件夹: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows
 2025-03-15 14:27:04,424 - ERROR - 加载文件失败: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows/.DS_Store, 错误: Cannot load file containing pickled data when allow_pickle=False
 2025-03-15 14:27:04,503 - INFO - 文件夹加载完成: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows, 加载数据量: 226
+2025-03-18 10:58:56,959 - INFO - 开始加载文件夹: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/non_vf_windows
+2025-03-18 10:58:57,049 - ERROR - 加载文件失败: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/non_vf_windows/.DS_Store, 错误: Cannot load file containing pickled data when allow_pickle=False
+2025-03-18 10:58:57,357 - INFO - 文件夹加载完成: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/non_vf_windows, 加载数据量: 828
+2025-03-18 10:58:57,357 - INFO - 开始加载文件夹: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows
+2025-03-18 10:58:57,377 - ERROR - 加载文件失败: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows/.DS_Store, 错误: Cannot load file containing pickled data when allow_pickle=False
+2025-03-18 10:58:57,458 - INFO - 文件夹加载完成: /Users/xingyulu/Public/监护心电预警/公开数据/室颤/data_proccess/window_data/vf_windows, 加载数据量: 226
