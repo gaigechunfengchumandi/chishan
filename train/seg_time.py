@@ -7,6 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import shutil
+from tqdm import tqdm  
 
 # 如果有其他自定义模块或类需要导入，请确保它们在项目路径中可用
 import sys
@@ -38,15 +39,46 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     counter = 0
     history = {'train_loss': [], 'val_loss': [], 'val_accuracy': [], 'val_f1': []}
     
-    for epoch in range(num_epochs):
+    # 添加epoch进度条
+    epoch_pbar = tqdm(range(num_epochs), desc='Training', position=0)
+    
+    for epoch in epoch_pbar:
         # 训练阶段
         model.train()
         train_loss = 0.0
         
-        for signals, labels in train_loader:
+        # 添加batch进度条
+        batch_pbar = tqdm(enumerate(train_loader), 
+                         total=len(train_loader),
+                         desc=f'Epoch {epoch+1}/{num_epochs}',
+                         position=1,
+                         leave=False)
+        
+        for batch_idx, (signals, labels) in batch_pbar:
             signals, labels = signals.to(device), labels.to(device)
             
-            # 前向传播前添加梯度清零
+            # 新增输入数据验证
+            if torch.isnan(signals).any():
+                # 创建有效样本掩码（True表示有效样本）
+                valid_mask = ~torch.isnan(signals).any(dim=1)
+                
+                # 过滤无效样本
+                signals = signals[valid_mask]
+                labels = labels[valid_mask]
+                
+                # 如果没有有效样本则跳过本批次
+                if signals.size(0) == 0:
+                    print("[WARNING] 本批次所有样本均包含NaN，跳过训练")
+                    continue
+                
+                # 显示被跳过的样本信息
+                nan_batch_indices = torch.where(~valid_mask)[0]
+                global_indices = [batch_idx * train_loader.batch_size + i.item() 
+                                for i in nan_batch_indices]
+                file_names = [train_loader.dataset.file_list[i] for i in global_indices]
+                print(f"[FILTERED] 已跳过 {len(nan_batch_indices)} 个异常样本，文件列表: {[f.name for f in file_names]}")
+
+            # 前向传播前添加梯度清零（保持原有位置）
             optimizer.zero_grad()
             
             # 前向传播
@@ -56,23 +88,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             outputs = torch.clamp(outputs, min=1e-4, max=1.0-1e-4)
             
-            # 新增输入数据验证
-            if torch.isnan(signals).any():
-                print("[CRITICAL] 输入信号包含NaN值！")
-            
-            # 调试信息增加NaN检查
-            print(f"[DEBUG] 输出范围: ({outputs.min().item():.4f}, {outputs.max().item():.4f})",
-                  f"NaN数量: {torch.isnan(outputs).sum().item()}")
             
             # 新增数值稳定处理（关键修复）
             outputs = torch.clamp(outputs, min=1e-7, max=1.0-1e-7)
             
             # 新增标签类型转换（确保标签为浮点型）
             labels = labels.float()
-            
-            # 新增调试信息（定位具体问题）
-            print(f"[DEBUG] 输出范围: ({outputs.min().item():.4f}, {outputs.max().item():.4f})")
-            print(f"[DEBUG] 标签范围: ({labels.min().item():.4f}, {labels.max().item():.4f})")
             
             loss = criterion(outputs, labels)
             
@@ -82,6 +103,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             optimizer.step()
             
             train_loss += loss.item() * signals.size(0)
+            
+            # 更新batch进度条
+            batch_pbar.set_postfix({'batch_loss': f'{loss.item():.4f}'})
         
         train_loss = train_loss / len(train_loader.dataset)
         
@@ -91,8 +115,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         all_preds = []
         all_labels = []
         
+        # 添加验证集进度条
+        val_pbar = tqdm(val_loader, 
+                       desc='Validating',
+                       position=1,
+                       leave=False)
+        
         with torch.no_grad():
-            for signals, labels in val_loader:
+            for signals, labels in val_pbar:
                 signals, labels = signals.to(device), labels.to(device)
                 
                 # 前向传播
