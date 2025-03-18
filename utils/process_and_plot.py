@@ -334,7 +334,23 @@ class ECGProcessor:
                 print(f"处理记录 {record_name} 的交界处时出错: {str(e)}")
         
         print(f"数据已保存至: {transition_dir}")
-
+    
+    def _process_transition_for_record(self, record_name: str, time_info: str, output_dir: Path):
+        """处理单个记录的室颤与非室颤交界处"""
+        # 读取记录数据
+        record_path = self.source_dir / record_name
+        try:
+            record = wfdb.rdrecord(str(record_path))
+        except Exception as e:
+            print(f"无法读取记录 {record_name}: {str(e)}")
+            return
+        
+        # 步骤1: 提取所有室颤区间
+        vf_periods = self._extract_vf_periods(time_info)
+        
+        # 步骤2: 对每个室颤开始位置截取滑动窗口
+        self._process_transition_windows(record_path, record, vf_periods, record_name, output_dir)
+   
     def _extract_vf_periods(self, time_info: str) -> List[Tuple[float, float]]:
         """
         从时间信息中提取所有室颤区间
@@ -448,21 +464,7 @@ class ECGProcessor:
                 except Exception as e:
                     print(f"处理交界处窗口时出错 (记录: {record_name}, 时间: {window_start_time}-{window_end_time}): {str(e)}")
 
-    def _process_transition_for_record(self, record_name: str, time_info: str, output_dir: Path):
-        """处理单个记录的室颤与非室颤交界处"""
-        # 读取记录数据
-        record_path = self.source_dir / record_name
-        try:
-            record = wfdb.rdrecord(str(record_path))
-        except Exception as e:
-            print(f"无法读取记录 {record_name}: {str(e)}")
-            return
-        
-        # 步骤1: 提取所有室颤区间
-        vf_periods = self._extract_vf_periods(time_info)
-        
-        # 步骤2: 对每个室颤开始位置截取滑动窗口
-        self._process_transition_windows(record_path, record, vf_periods, record_name, output_dir)
+ 
     # endregion
 
     
