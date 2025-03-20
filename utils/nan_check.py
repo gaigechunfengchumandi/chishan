@@ -48,9 +48,9 @@ def check_nans_in_npy(directory, nan_files_dir):
 
 if __name__ == "__main__":
     # 设置要检查的目录路径
-    directory_to_check = "/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/transition_segments"
+    directory_to_check = "/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data"
     # 设置存放含nan文件的目录
-    nan_files_directory = "/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/nan_files"
+    nan_files_directory = "/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/nan_data"
     
     print("开始检查npy文件中的nan值...")
     files_with_nans = check_nans_in_npy(directory_to_check, nan_files_directory)

@@ -553,7 +553,7 @@ def main():
     # window_npy_folder = f"{config['window_data_dir']}/non_vf_windows"
     # window_picture_folder = f"{config['picture_base_dir']}/non_vf_picture"
     # processor.plot_from_folder(window_npy_folder, window_picture_folder)
-    processor.plot_from_folder(config['trainstion_output_dir'], config['trainstion_picture_dir'])
+    # processor.plot_from_folder(config['trainstion_output_dir'], config['trainstion_picture_dir'])
     print("图形绘制完成！")
     
 

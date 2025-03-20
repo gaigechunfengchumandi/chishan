@@ -268,7 +268,7 @@ def plot_training_history(history, save_path=None):
     plt.show()
 
 
-def predict_and_visualize(model, signal, device='cuda', window_size=2500):
+def predict_and_visualize(model, signal, device='cuda', window_size=2500, save_path=None):
     """
     对单个信号进行预测并可视化结果
     
@@ -329,7 +329,11 @@ def predict_and_visualize(model, signal, device='cuda', window_size=2500):
     plt.grid(True)
     
     plt.tight_layout()
-    plt.show()
+    # 保存图片到指定路径
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f'预测结果可视化已保存至 {save_path}')
+    plt.close()
     
     return predictions
 
@@ -350,6 +354,7 @@ def main():
     patience = 10
     model_save_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
     history_plot_path = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/results/training_history.png'
+    predict_save_path = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/pred_picture'
     
 
     # region 1.0 数据读取和模型配置
@@ -398,7 +403,8 @@ def main():
     # 创建数据集和数据加载器
     train_dataset = ECGDataset(temp_dirs['train'])
     val_dataset = ECGDataset(temp_dirs['val'])
-    test_dataset = ECGDataset(temp_dirs['test'])
+    test_dataset = ECGDataset('/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/processed_data')
+    
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
@@ -443,43 +449,60 @@ def main():
     
     # 训练模型
     print('开始训练模型...')
-    history = train_model(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        criterion=criterion,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        num_epochs=num_epochs,
-        device=device,
-        patience=patience,
-        model_save_path=model_save_path
-    )
+    # history = train_model(
+    #     model=model,
+    #     train_loader=train_loader,
+    #     val_loader=val_loader,
+    #     criterion=criterion,
+    #     optimizer=optimizer,
+    #     scheduler=scheduler,
+    #     num_epochs=num_epochs,
+    #     device=device,
+    #     patience=patience,
+    #     model_save_path=model_save_path
+    # )
 
     
     # 绘制训练历史记录
-    plot_training_history(history, save_path=history_plot_path)
+    # plot_training_history(history, save_path=history_plot_path)
     
     # 加载最佳模型进行评估
     model.load_state_dict(torch.load(model_save_path))
     
     # 在测试集上评估模型
     print('在测试集上评估模型...')
-    metrics = evaluate_model(model, test_loader, device=device)
+    # metrics = evaluate_model(model, test_loader, device=device)
     
     print('\n测试集评估结果:')
-    for metric_name, metric_value in metrics.items():
-        print(f'{metric_name}: {metric_value:.4f}')
+    # for metric_name, metric_value in metrics.items():
+        # print(f'{metric_name}: {metric_value:.4f}')
     
     # 可视化一个测试样本的预测结果
     print('\n可视化预测结果...')
-    test_sample, test_label = test_dataset[0]
-    predictions = predict_and_visualize(
-        model=model,
-        signal=test_sample.numpy(),
-        device=device,
-        window_size=len(test_sample)
-    )
+    # 遍历测试集中的所有样本进行预测
+    print('开始预测测试集所有样本...')
+    for i in range(len(test_dataset)):
+        test_sample, test_label = test_dataset[i]
+        
+        # 获取原始文件名
+        original_filename = test_dataset.file_list[i].stem
+        
+        # 为每个样本创建单独的保存路径，使用原始文件名
+        sample_save_path = os.path.join(predict_save_path, f'{original_filename}.png')
+        
+        predictions = predict_and_visualize(
+            model=model,
+            signal=test_sample.numpy(),
+            device=device,
+            window_size=len(test_sample),
+            save_path=sample_save_path
+        )
+        
+        # 每预测10个样本打印一次进度
+        if (i + 1) % 10 == 0:
+            print(f'已完成 {i + 1}/{len(test_dataset)} 个样本的预测')
+    
+    print('测试集预测完成！')
     
     # 清理临时目录
     for dir_path in temp_dirs.values():
