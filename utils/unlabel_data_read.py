@@ -3,7 +3,27 @@
 import wfdb
 import numpy as np
 import os
+from scipy import signal
 import matplotlib.pyplot as plt
+
+
+def highpass_filter(data, cutoff_freq, fs, order=4):
+    """应用高通滤波器，这是产科那边给的，不要改了""" 
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff_freq / nyquist
+    b, a = signal.butter(order, normal_cutoff, btype = 'high', analog= False)
+    y = signal.filtfilt(b, a, data, axis = 0)
+    return y
+
+
+def lowpass_filter(data, cutoff_freq, fs, order=4):
+    """应用低通滤波器"""
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff_freq / nyquist
+    b, a = signal.butter(order, normal_cutoff, btype = 'low', analog= False)
+    y = signal.filtfilt(b, a, data, axis = 0)
+    return y
+
 
 def process_data(input_file, output_dir, window_size_sec=10):
     """处理WFDB文件并保存切分后的数据"""
@@ -14,8 +34,17 @@ def process_data(input_file, output_dir, window_size_sec=10):
     base_path = input_file.rsplit('.', 1)[0]
     record = wfdb.rdrecord(base_path)
     signals, fs = record.p_signal, record.fs  # signals shape eg:(1105264, 4) 有4个导联
-    # 只选取第一个导联的数据
+    
+
+
+    # 选取第一个导联
     signals = signals[:, 1]
+    # 高通滤波,去除基线漂移
+    signals = highpass_filter(signals, cutoff_freq=0.67, fs=fs)
+    # 低通滤波,去除高频噪声
+    signals = lowpass_filter(signals, cutoff_freq=40, fs=fs)
+
+
     # 切分数据
     window_size = window_size_sec * fs
     num_windows = len(signals) // window_size
@@ -25,8 +54,10 @@ def process_data(input_file, output_dir, window_size_sec=10):
         start_idx = i * window_size
         end_idx = (i + 1) * window_size
         window_data = signals[start_idx:end_idx]
-        #归一化窗口
-        window_data = (window_data - np.mean(window_data)) / np.std(window_data)
+        # 归一化窗口
+        # window_data = (window_data - np.mean(window_data)) / np.std(window_data)
+        # 应用高通滤波器
+        # window_data = highpass_filter(window_data, cutoff_freq=0.67, fs=fs)
         
         output_file = os.path.join(output_dir, f'segment_{i:04d}.npy')
         np.save(output_file, window_data)
@@ -70,9 +101,9 @@ def plot_data(segments, fs, picture_dir):
 def main():
 
     # 配置路径
-    input_file = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/原始数据/86.dat"
-    output_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/processed_data"
-    picture_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/picture"
+    input_file = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/原始数据/141.dat"
+    output_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/processed_data"
+    picture_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/picture"
     
     # 选择操作模式
     mode = input("选择操作模式 (1: 处理数据, 2: 生成图片, 3: 全部执行): ")

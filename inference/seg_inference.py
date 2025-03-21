@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
-from models.vf_segmentation_model import VFSegmentationModel
+from models.seg_model_cnn_lstm import VFSegmentationModel
 
 def load_signal_data(data_dir):
     """加载信号数据"""
@@ -72,8 +72,8 @@ def visualize_and_save(signal, prediction, file_name, save_dir):
 def main():
     # 配置参数
     model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
-    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/processed_data'
-    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/inference_results'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/processed_data'
+    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/inference_results'
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)

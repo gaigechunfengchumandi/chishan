@@ -12,7 +12,7 @@ from tqdm import tqdm
 # 如果有其他自定义模块或类需要导入，请确保它们在项目路径中可用
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
-from models.vf_segmentation_model import VFSegmentationModel, ECGDataset
+from models.seg_model_cnn_lstm import VFSegmentationModel, ECGDataset
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs=50, device='cuda', patience=10, model_save_path='best_model.pth'):
@@ -173,7 +173,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     
     return history
 
-
 def evaluate_model(model, test_loader, device='cuda'):
     """
     评估模型
@@ -228,7 +227,6 @@ def evaluate_model(model, test_loader, device='cuda'):
     
     return metrics
 
-
 def plot_training_history(history, save_path=None):
     """
     绘制训练历史记录
@@ -268,76 +266,6 @@ def plot_training_history(history, save_path=None):
     plt.show()
 
 
-def predict_and_visualize(model, signal, device='cuda', window_size=2500, save_path=None):
-    """
-    对单个信号进行预测并可视化结果
-    
-    Args:
-        model: 模型实例
-        signal: 输入信号，形状为 [sequence_length]
-        device: 预测设备
-        window_size: 窗口大小
-        
-    Returns:
-        预测结果
-    """
-    model = model.to(device)
-    model.eval()
-    
-    # 确保信号长度是窗口大小的倍数
-    if len(signal) % window_size != 0:
-        pad_length = window_size - (len(signal) % window_size)
-        signal = np.pad(signal, (0, pad_length), 'constant')
-    
-    # 将信号分割成窗口
-    num_windows = len(signal) // window_size
-    windows = np.array_split(signal, num_windows)
-    
-    predictions = []
-    
-    with torch.no_grad():
-        for window in windows:
-            # 转换为张量并添加批次维度
-            window_tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(device)
-            
-            # 前向传播
-            output = model(window_tensor).squeeze(-1)
-            
-            # 收集预测结果
-            pred = (output > 0.5).float().cpu().numpy()
-            predictions.append(pred[0])
-    
-    # 合并所有窗口的预测结果
-    predictions = np.concatenate(predictions)
-    
-    # 可视化
-    plt.figure(figsize=(15, 8))
-    
-    plt.subplot(2, 1, 1)
-    plt.plot(signal)
-    plt.title('ECG Signal')
-    plt.xlabel('Sample')
-    plt.ylabel('Amplitude')
-    plt.grid(True)
-    
-    plt.subplot(2, 1, 2)
-    plt.plot(predictions)
-    plt.title('VF Prediction (1 = VF, 0 = Non-VF)')
-    plt.xlabel('Sample')
-    plt.ylabel('Prediction')
-    plt.ylim(-0.1, 1.1)
-    plt.grid(True)
-    
-    plt.tight_layout()
-    # 保存图片到指定路径
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f'预测结果可视化已保存至 {save_path}')
-    plt.close()
-    
-    return predictions
-
-
 def main():
     """
     主函数，演示模型的训练和评估流程
@@ -347,14 +275,13 @@ def main():
     np.random.seed(42)
     
     # 配置参数
-    data_dir = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/transition_segments'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data'
     batch_size = 16
     learning_rate = 0.001
     num_epochs = 50
     patience = 10
     model_save_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
     history_plot_path = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/results/training_history.png'
-    predict_save_path = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/pred_picture'
     
 
     # region 1.0 数据读取和模型配置
@@ -365,45 +292,16 @@ def main():
     # 创建保存目录
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
     os.makedirs(os.path.dirname(history_plot_path), exist_ok=True)
+
     
-    # 数据集划分
-    all_files = list(Path(data_dir).glob('*.npy'))
-    np.random.shuffle(all_files)
-    
-    # 按照8:1:1的比例划分训练集、验证集和测试集
-    train_size = int(0.8 * len(all_files))
-    val_size = int(0.1 * len(all_files))
-    
-    train_files = all_files[:train_size]
-    val_files = all_files[train_size:train_size+val_size]
-    test_files = all_files[train_size+val_size:]
-    
-    # 创建临时目录存放划分后的数据
-    temp_dirs = {
-        'train': Path('/Users/xingyulu/Public/physionet/data/temp/train'),
-        'val': Path('/Users/xingyulu/Public/physionet/data/temp/val'),
-        'test': Path('/Users/xingyulu/Public/physionet/data/temp/test')
-    }
-    
-    for dir_path in temp_dirs.values():
-        dir_path.mkdir(parents=True, exist_ok=True)
-        # 清空目录
-        for file in dir_path.glob('*.npy'):
-            file.unlink()
-    
-    # 复制文件到临时目录
-    import shutil
-    for file, dir_name in zip(
-        [train_files, val_files, test_files],
-        ['train', 'val', 'test']
-    ):
-        for f in file:
-            shutil.copy(f, temp_dirs[dir_name])
-    
+    train_dir = os.path.join(data_dir, 'train')
+    val_dir = os.path.join(data_dir, 'val')
+    test_dir = os.path.join(data_dir, 'test')
+
     # 创建数据集和数据加载器
-    train_dataset = ECGDataset(temp_dirs['train'])
-    val_dataset = ECGDataset(temp_dirs['val'])
-    test_dataset = ECGDataset('/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/processed_data')
+    train_dataset = ECGDataset(train_dir)
+    val_dataset = ECGDataset(val_dir)
+    test_dataset = ECGDataset(test_dir)
     
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -449,60 +347,34 @@ def main():
     
     # 训练模型
     print('开始训练模型...')
-    # history = train_model(
-    #     model=model,
-    #     train_loader=train_loader,
-    #     val_loader=val_loader,
-    #     criterion=criterion,
-    #     optimizer=optimizer,
-    #     scheduler=scheduler,
-    #     num_epochs=num_epochs,
-    #     device=device,
-    #     patience=patience,
-    #     model_save_path=model_save_path
-    # )
+    history = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        num_epochs=num_epochs,
+        device=device,
+        patience=patience,
+        model_save_path=model_save_path
+    )
 
     
     # 绘制训练历史记录
-    # plot_training_history(history, save_path=history_plot_path)
+    plot_training_history(history, save_path=history_plot_path)
     
     # 加载最佳模型进行评估
     model.load_state_dict(torch.load(model_save_path))
     
     # 在测试集上评估模型
     print('在测试集上评估模型...')
-    # metrics = evaluate_model(model, test_loader, device=device)
+    metrics = evaluate_model(model, test_loader, device=device)
     
     print('\n测试集评估结果:')
-    # for metric_name, metric_value in metrics.items():
-        # print(f'{metric_name}: {metric_value:.4f}')
+    for metric_name, metric_value in metrics.items():
+        print(f'{metric_name}: {metric_value:.4f}')
     
-    # 可视化一个测试样本的预测结果
-    print('\n可视化预测结果...')
-    # 遍历测试集中的所有样本进行预测
-    print('开始预测测试集所有样本...')
-    for i in range(len(test_dataset)):
-        test_sample, test_label = test_dataset[i]
-        
-        # 获取原始文件名
-        original_filename = test_dataset.file_list[i].stem
-        
-        # 为每个样本创建单独的保存路径，使用原始文件名
-        sample_save_path = os.path.join(predict_save_path, f'{original_filename}.png')
-        
-        predictions = predict_and_visualize(
-            model=model,
-            signal=test_sample.numpy(),
-            device=device,
-            window_size=len(test_sample),
-            save_path=sample_save_path
-        )
-        
-        # 每预测10个样本打印一次进度
-        if (i + 1) % 10 == 0:
-            print(f'已完成 {i + 1}/{len(test_dataset)} 个样本的预测')
-    
-    print('测试集预测完成！')
     
     # 清理临时目录
     for dir_path in temp_dirs.values():
