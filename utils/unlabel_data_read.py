@@ -71,8 +71,8 @@ def main():
 
     # 配置路径
     input_file = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/原始数据/86.dat"
-    output_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/processed_data"
-    picture_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/picture"
+    output_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/processed_data"
+    picture_dir = "/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/picture"
     
     # 选择操作模式
     mode = input("选择操作模式 (1: 处理数据, 2: 生成图片, 3: 全部执行): ")

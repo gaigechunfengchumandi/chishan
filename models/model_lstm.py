@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 # 设置随机种子以确保结果可复现
 torch.manual_seed(42)
@@ -63,8 +64,19 @@ class ECGClassifier(nn.Module):
 
 # 使用示例
 if __name__ == "__main__":
+    # 创建 TensorBoard writer
+    writer = SummaryWriter('runs/ecg_model')
+    
+    # 创建模型实例
     model = ECGClassifier(input_size=2500)
-    # 测试输入输出
+    
+    # 生成测试输入
     test_input = torch.randn(32, 1, 2500)  # batch_size=32, channels=1, sequence_length=2500
+    
+    # 添加模型图到 TensorBoard
+    writer.add_graph(model, test_input)
+    writer.close()
+    
+    # 测试输出
     output = model(test_input)
     print(f"输出形状: {output.shape}")  # 应该输出 torch.Size([32, 2])

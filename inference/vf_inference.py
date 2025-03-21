@@ -72,8 +72,8 @@ def visualize_and_save(signal, prediction, file_name, save_dir):
 def main():
     # 配置参数
     model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
-    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/processed_data'
-    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/inference_results'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/processed_data'
+    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/90_10s/inference_results'
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
