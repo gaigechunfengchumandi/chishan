@@ -299,9 +299,9 @@ def main():
     test_dir = os.path.join(data_dir, 'test')
 
     # 创建数据集和数据加载器
-    train_dataset = ECGDataset(train_dir)
-    val_dataset = ECGDataset(val_dir)
-    test_dataset = ECGDataset(test_dir)
+    train_dataset = ECGDataset(train_dir, mode='fsst')
+    val_dataset = ECGDataset(val_dir, mode='fsst')
+    test_dataset = ECGDataset(test_dir, mode='fsst')
     
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)

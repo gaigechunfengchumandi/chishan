@@ -94,22 +94,31 @@ class TransformerEncoder(nn.Module):
             TransformerBlock(embed_dim, num_heads, ff_dim, dropout)
             for _ in range(num_layers)
         ])
-        # 添加通道维度转换层
-        self.channel_adjust = nn.Conv1d(embed_dim, 256, kernel_size=1)
+
+        self.output_layer = nn.Linear(embed_dim, 256)
         
     def forward(self, x):
+        # 输入形状: [batch_size, 1, seq_len]
         batch_size, _, seq_len = x.shape
-        
-        x = x.permute(2, 0, 1)  # [seq_len, batch_size, 1]
-        x = self.embedding(x)    # [seq_len, batch_size, embed_dim]
+
+        # 转换为 [seq_len, batch_size, 1]
+        x = x.permute(2, 0, 1)
+
+        # 嵌入 [seq_len, batch_size, embed_dim]
+        x = self.embedding(x)
+
+        # 添加位置编码
         x = x + self.pos_encoder[:seq_len, :].unsqueeze(1)
-        
+
+        # 通过 Transformer 层
         for layer in self.layers:
             x = layer(x)
-        
-        # 转换形状并调整通道数
-        x = x.permute(1, 2, 0)  # [batch_size, embed_dim, seq_len]
-        x = self.channel_adjust(x)  # [batch_size, 256, seq_len]
+
+        # 输出层调整
+        x = self.output_layer(x)            # 形状 [seq_len, batch_size, 256]
+        x = x.permute(1, 0, 2)             # 形状 [batch_size, seq_len, 256]
+        x = x.permute(0, 2, 1)             # 形状 [batch_size, 256, seq_len]
+
         return x
 
 class UNet(nn.Module):
@@ -132,11 +141,11 @@ class UNet(nn.Module):
                 num_layers=3,
                 dropout=0.1
             )
-            # 修正融合层输入通道为256（卷积特征）+256（Transformer特征）=512
-            self.fusion = nn.Conv1d(512, 512, kernel_size=1)
+            # 修正融合层输入通道为256（卷积特征）+256（Transformer特征）=512，输出为 256
+            self.fusion = nn.Conv1d(512, 256, kernel_size=1)
         
         # Bridge
-        self.bridge = DoubleConv(256 if not self.use_transformer else 512, 512)
+        self.bridge = DoubleConv(256, 512)
         
         # Decoder
         self.decoder3 = DecoderBlock(512, 256)
@@ -146,6 +155,33 @@ class UNet(nn.Module):
         # Output
         self.conv_last = nn.Conv1d(64, 2, kernel_size=1)
         self.adaptive_pool = nn.AdaptiveAvgPool1d(1)
+        
+    def _fuse_features(self, conv_features, transformer_input):
+        """
+        融合卷积特征和Transformer特征
+        
+        Args:
+            conv_features: 卷积网络提取的特征
+            transformer_input: 原始输入，用于Transformer特征提取
+            
+        Returns:
+            融合后的特征
+        """
+        # Transformer特征提取
+        transformer_features = self.transformer(transformer_input)
+        
+        # 调整transformer_features的大小以匹配conv_features
+        target_size = conv_features.size(2)
+        transformer_features = nn.functional.adaptive_avg_pool1d(
+            transformer_features, 
+            output_size=target_size
+        )
+        
+        # 特征融合
+        combined_features = torch.cat([conv_features, transformer_features], dim=1)
+        fused_features = self.fusion(combined_features)
+        
+        return fused_features
         
     def forward(self, x):
         # 保存原始输入用于Transformer
@@ -158,18 +194,7 @@ class UNet(nn.Module):
         
         # 如果启用Transformer，则进行特征融合
         if self.use_transformer:
-            # Transformer特征提取
-            transformer_features = self.transformer(transformer_input)
-            
-            # 调整transformer_features的大小以匹配conv3
-            if transformer_features.size(2) != conv3.size(2):
-                transformer_features = nn.functional.adaptive_avg_pool1d(
-                    transformer_features, conv3.size(2)
-                )
-            
-            # 特征融合
-            combined_features = torch.cat([conv3, transformer_features], dim=1)
-            conv3 = self.fusion(combined_features)
+            conv3 = self._fuse_features(conv3, transformer_input)
         
         # Bridge
         bridge = self.bridge(conv3)
@@ -187,37 +212,40 @@ class UNet(nn.Module):
         return out
 
 if __name__ == "__main__":
-    # 创建 TensorBoard writer
+    # 设置较小的 batch size 来减少内存使用
+    batch_size = 2
     writer = SummaryWriter('runs/ecg_unet_transformer_model')
-    # 创建模型实例 - 可以选择是否使用Transformer
+    # 创建模型实例
+    print("初始化模型...")
     model_with_transformer = UNet(input_size=2500, use_transformer=True)
-    # model_without_transformer = UNet(input_size=2500, use_transformer=False)
     
-    # 生成测试输入
-    test_input = torch.randn(32, 1, 2500)  # batch_size=32, channels=1, sequence_length=2500
-    
-    # 测试带有Transformer的模型
+    # 生成较小的测试输入
+    test_input = torch.randn(batch_size, 1, 2500)
+
+    # 先运行一次前向传播
     try:
-        print("测试带有Transformer的模型:")
         output = model_with_transformer(test_input)
         print(f"模型测试成功，输出形状: {output.shape}")
-        
-        # 添加模型图到 TensorBoard
-        writer.add_graph(model_with_transformer, test_input)
+    
+        # 使用 torch.jit.trace 创建可追踪的模型
+        script_model = torch.jit.script(model_with_transformer, test_input)
+        writer.add_graph(script_model, test_input)
+        print("模型图保存成功")
     except Exception as e:
         print(f"错误: {e}")
     
     # 测试不带Transformer的模型
     # try:
-    #     print("\n测试不带Transformer的模型:")
     #     output = model_without_transformer(test_input)
     #     print(f"模型测试成功，输出形状: {output.shape}")
     #     # 添加模型图到 TensorBoard
     #     writer.add_graph(model_without_transformer, test_input)
     # except Exception as e:
     #     print(f"错误: {e}")
+
+
+    finally:
+        writer.close()
     
-    writer.close()
-    
-    print("\nTensorBoard数据已写入。请运行以下命令查看:")
-    print("tensorboard --logdir=/Users/xingyulu/Public/physionet/runs/ecg_unet_transformer_model")
+        print("\nTensorBoard数据已写入。请运行以下命令查看:")
+        print("tensorboard --logdir=/Users/xingyulu/Public/physionet/runs/ecg_unet_transformer_model")

@@ -14,20 +14,24 @@ import os
 from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+import sys
+sys.path.append('/Users/xingyulu/Public/physionet')
+from utils.fsst_convert.time2fsst_cls import time2fsst_for_loader# 把频域转换的操作集成到数据读取的过程中
 
 class ECGDataset(Dataset):
     """ECG数据集类，用于加载和预处理ECG数据"""
     
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, mode='time'):
         """
         初始化数据集
         
         Args:
             data_dir: 数据目录路径
-            transform: 数据变换函数
+            mode: 数据处理模式，'time'或'fsst'
         """
         self.data_dir = Path(data_dir)
         self.file_list = list(self.data_dir.glob('*.npy'))
+        self.mode = mode
         
     def __len__(self):
         """返回数据集大小"""
@@ -38,15 +42,29 @@ class ECGDataset(Dataset):
         # 加载数据
         data = np.load(self.file_list[idx])
         
-        # 分离信号和标签
-        signal = data[:, 0].astype(np.float32).squeeze()  # 确保1D形状
-        label = data[:, 1].astype(np.float32).squeeze()
+        if self.mode == 'time':
+            # 时域模式 - 使用原来的处理方式
+            signal = data[:, 0].astype(np.float32).squeeze()  # 确保1D形状
+            label = data[:, 1].astype(np.float32).squeeze()
+                
+            # 新增标准化 (假设ECG信号范围在±5mV之间)
+            signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
+            signal = np.clip(signal, -5.0, 5.0) / 5.0  # 归一化到[-1, 1]
             
-        # 新增标准化 (假设ECG信号范围在±5mV之间)
-        signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
-        signal = np.clip(signal, -5.0, 5.0) / 5.0  # 归一化到[-1, 1]
-        
-        return torch.tensor(signal), torch.tensor(label)
+            return torch.tensor(signal), torch.tensor(label)
+            
+        elif self.mode == 'fsst':
+            # FSST模式 - 使用FSST转换
+            # 转换为FSST特征
+            fsst_data = time2fsst_for_loader(data)  # shape: (41, sequence_length)
+            
+            # 分离特征和标签
+            signal = fsst_data[:-1, :].astype(np.float32)  # 前40行是特征
+            label = fsst_data[-1, :].astype(np.float32)    # 最后一行是标签
+            
+            return torch.tensor(signal), torch.tensor(label)
+        else:
+            raise ValueError(f"不支持的模式: {self.mode}")
 
 class VFSegmentationModel(nn.Module):
     """室颤分割模型，基于1D-CNN和BiLSTM的混合架构"""

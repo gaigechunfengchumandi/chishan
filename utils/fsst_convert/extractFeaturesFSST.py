@@ -5,7 +5,7 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from ssqueezepy._ssq_stft import ssq_stft
+from .ssqueezepy._ssq_stft import ssq_stft
 from scipy.signal import stft, windows
 
 # 整个文件夹一起转换

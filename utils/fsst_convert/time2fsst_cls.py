@@ -1,10 +1,7 @@
 import os
 import numpy as np
-from extractFeaturesFSST import extract_features_fsst
-# 用extract_features_fsst 就可以读整个文件夹一起转，适合小批量转换
-
-from extractFeaturesFSST import extract_features_fsst_1
-# 用extract_features_fsst_1 就可以每次输出一个文件的fsst转换，而不用读整个文件夹一起转，适合大批量转换
+from utils.fsst_convert.extractFeaturesFSST import extract_features_fsst # 整个文件夹一起转
+from utils.fsst_convert.extractFeaturesFSST import extract_features_fsst_1 #单个文件转 
 import matplotlib.pyplot as plt
 from scipy.signal import stft, windows
 import sys
@@ -100,6 +97,8 @@ class TimeToFSSTConverter:
         np.save(save_path, combined_data)
         print(f"成功处理并保存: {file_name} (包含标签)")
         return True
+
+        
     
     def process_all_files(self):
         """处理文件夹中的所有文件"""
@@ -123,22 +122,51 @@ class TimeToFSSTConverter:
         return success_count
 
 
-# 在这里直接设置参数，适合在IDE中运行
-if __name__ == "__main__":
-    # 处理模式: 'cls'(分类)或'seg'(分割)
-    mode = 'seg'  
-    # 要读取的文件夹路径
-    input_path = '/Users/xingyulu/Downloads/fsst_code/try/time'
-    # 要保存的文件夹路径
-    output_path = '/Users/xingyulu/Downloads/fsst_code/try/fsst'
+def time2fsst_for_loader(data_label, fs=250):
+    """
+    将时间域数据转换为FSST特征的函数，适用于dataloader调用
     
-    # 创建转换器实例
-    converter = TimeToFSSTConverter(
-        input_path=input_path,
-        output_path=output_path,
-        mode=mode,
-        fs=250
-    )
+    参数:
+        data_label: numpy数组，shape为(..., 2)，第一列为信号数据，第二列为标签
+        fs: 采样率，默认250Hz
     
-    # 处理所有文件
-    converter.process_all_files()
+    返回:
+        combined_data: numpy数组，shape为(41, ...)，前40行为FSST特征，最后一行为标签
+    """
+    # 处理信号数据和标签
+    data = data_label[:, 0]  # 用来转成fsst
+    label = data_label[:, 1]  # 取出标签
+    label_row = label[np.newaxis, :]  # 转成ndarray:(1,...)以便后面拼接
+    
+    # 准备输入数据
+    input_txt = [data]  # 创建包含一个元素的列表
+    
+    # 调用extract_features_fsst函数得到基于FSST的特征
+    feature_fsst = extract_features_fsst_1(input_txt[0], fs)  # list:1  ndarray:(40,...)
+    feature_data = np.array(feature_fsst[0])
+    
+    # 将特征和标签合并
+    combined_data = np.vstack((feature_data, label_row))  # (41,...)
+    
+    return combined_data
+
+# if __name__ == "__main__":
+#     # 处理模式: 'cls'(分类)或'seg'(分割)
+#     mode = 'seg'  
+#     # 要读取的文件夹路径
+#     input_path = '/Users/xingyulu/Downloads/fsst_code/try/time'
+#     # 要保存的文件夹路径
+#     output_path = '/Users/xingyulu/Downloads/fsst_code/try/fsst'
+    
+#     # 创建转换器实例
+#     converter = TimeToFSSTConverter(
+#         input_path=input_path,
+#         output_path=output_path,
+#         mode=mode,
+#         fs=250
+#     )
+    
+#     # 处理所有文件
+#     converter.process_all_files()
+
+
