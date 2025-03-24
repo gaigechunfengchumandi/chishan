@@ -5,7 +5,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
+sys.path.append('/Users/xingyulu/Public/physionet/utils/fsst_convert')
 from models.seg_model_cnn_lstm import VFSegmentationModel
+
+from utils.fsst_convert.time2fsst_cls import time2fsst_without_label 
 
 def load_signal_data(data_dir):
     """加载信号数据"""
@@ -26,13 +29,8 @@ def predict_signal(model, signal, device='cuda', window_size=2500):
     """对单个信号进行预测"""
     model.eval()
     
-    # 确保信号长度是窗口大小的倍数
-    if len(signal) % window_size != 0:
-        pad_length = window_size - (len(signal) % window_size)
-        signal = np.pad(signal, (0, pad_length), 'constant')
-    
     # 转换为张量
-    signal_tensor = torch.tensor(signal, dtype=torch.float32).to(device)
+    signal_tensor = torch.tensor(signal, dtype=torch.float32).to(device) # shape: (2500,) or (40,2500)
     
     with torch.no_grad():
         # 添加批次维度
@@ -71,9 +69,10 @@ def visualize_and_save(signal, prediction, file_name, save_dir):
 
 def main():
     # 配置参数
-    model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
-    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/processed_data'
-    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/141_10s/inference_results'
+    model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best_fsst.pth'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/processed_data'
+    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/fsst_inference_results'
+    data_mode = 'fsst'
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -83,7 +82,7 @@ def main():
     print(f'使用设备: {device}')
     
     # 加载模型
-    model = VFSegmentationModel(input_channels=1, hidden_size=64, num_layers=2, dropout=0.3)
+    model = VFSegmentationModel(mode=data_mode, hidden_size=64, num_layers=2, dropout=0.3)
     model.load_state_dict(torch.load(model_path))
     model = model.to(device)
     
@@ -94,9 +93,13 @@ def main():
     # 对每个信号进行预测和可视化
     for signal, file_name in zip(signals, file_names):
         print(f'处理文件: {file_name}')
-        
-        # 预测
-        prediction = predict_signal(model, signal, device)
+
+        # 转换为FSST特征
+        if data_mode == 'fsst':
+            fsst_signal = time2fsst_without_label(signal) # shape: (40, 2500)
+            prediction = predict_signal(model, fsst_signal, device)
+        else:
+            prediction = predict_signal(model, signal, device)
         
         # 可视化和保存结果
         visualize_and_save(signal, prediction, file_name, output_dir)

@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
-from utils.fsst_convert.time2fsst_cls import time2fsst_for_loader# 把频域转换的操作集成到数据读取的过程中
+from utils.fsst_convert.time2fsst_cls import time2fsst_for_loader # 把频域转换的操作集成到数据读取的过程中
 
 class ECGDataset(Dataset):
     """ECG数据集类，用于加载和预处理ECG数据"""
@@ -47,7 +47,7 @@ class ECGDataset(Dataset):
             signal = data[:, 0].astype(np.float32).squeeze()  # 确保1D形状
             label = data[:, 1].astype(np.float32).squeeze()
                 
-            # 新增标准化 (假设ECG信号范围在±5mV之间)
+            # 标准化 (假设ECG信号范围在±5mV之间)
             signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
             signal = np.clip(signal, -5.0, 5.0) / 5.0  # 归一化到[-1, 1]
             
@@ -132,12 +132,9 @@ class VFSegmentationModel(nn.Module):
             输出张量，形状为 [batch_size, sequence_length, 1]
         """
         if self.mode == 'time':
-            # 时域模式 - 使用原来的处理方式
-            # 修复维度问题：输入应为 [batch_size, channels, sequence_length]
+            # 时域模式 调整输入维度为 [batch_size, channels, sequence_length]
             x = x.unsqueeze(1)  # 添加通道维度 [batch_size, 1, sequence_length]
-        else:
-            # FSST模式 - 使用FSST转换
-            x = x # 因为FSST已经是[batch_size, 40, sequence_length]的形式，不需要调整维度
+            # 因为FSST已经是[batch_size, 40, sequence_length]的形式，不需要调整维度
         
         # 卷积层处理后的形状应为 [batch_size, 128, sequence_length]
         x = F.relu(self.bn1(self.conv1(x)))

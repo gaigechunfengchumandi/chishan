@@ -15,6 +15,10 @@ sys.path.append('/Users/xingyulu/Public/physionet')
 sys.path.append('/Users/xingyulu/Public/physionet/utils/fsst_convert')
 from models.seg_model_cnn_lstm import VFSegmentationModel, ECGDataset
 
+
+
+'''结合和了时间和频率两种模式的训练脚本'''
+
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs=50, device='cuda', patience=10, model_save_path='best_model.pth'):
     """
@@ -281,7 +285,7 @@ def main():
     learning_rate = 0.001
     num_epochs = 50
     patience = 10
-    data_mode = 'fsst'
+    data_mode = 'fsst' # 这里要指定是'fsst'还是'time'模式
     model_save_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
     history_plot_path = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/results/training_history.png'
     
@@ -377,10 +381,6 @@ def main():
     for metric_name, metric_value in metrics.items():
         print(f'{metric_name}: {metric_value:.4f}')
     
-    
-    # 清理临时目录
-    for dir_path in temp_dirs.values():
-        shutil.rmtree(dir_path, ignore_errors=True)
     
     print('模型训练和评估完成!')
 

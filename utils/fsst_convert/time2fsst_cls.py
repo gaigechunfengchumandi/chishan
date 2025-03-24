@@ -122,33 +122,62 @@ class TimeToFSSTConverter:
         return success_count
 
 
+
+
+# 这个是给dataloader用的，有标签的情况
 def time2fsst_for_loader(data_label, fs=250):
     """
     将时间域数据转换为FSST特征的函数，适用于dataloader调用
     
     参数:
-        data_label: numpy数组，shape为(..., 2)，第一列为信号数据，第二列为标签
+        data_label: numpy数组，shape为(sequence_length, 2)，第一列为信号数据，第二列为标签
         fs: 采样率，默认250Hz
     
     返回:
-        combined_data: numpy数组，shape为(41, ...)，前40行为FSST特征，最后一行为标签
+        combined_data: numpy数组，shape为(41, sequence_length)，前40行为FSST特征，最后一行为标签
     """
     # 处理信号数据和标签
     data = data_label[:, 0]  # 用来转成fsst
     label = data_label[:, 1]  # 取出标签
-    label_row = label[np.newaxis, :]  # 转成ndarray:(1,...)以便后面拼接
+    label_row = label[np.newaxis, :]  # 转成ndarray:(1,sequence_length)以便后面拼接
     
     # 准备输入数据
     input_txt = [data]  # 创建包含一个元素的列表
     
     # 调用extract_features_fsst函数得到基于FSST的特征
-    feature_fsst = extract_features_fsst_1(input_txt[0], fs)  # list:1  ndarray:(40,...)
+    feature_fsst = extract_features_fsst_1(input_txt[0], fs)  # list:1  ndarray:(40,sequence_length)
     feature_data = np.array(feature_fsst[0])
     
     # 将特征和标签合并
-    combined_data = np.vstack((feature_data, label_row))  # (41,...)
+    combined_data = np.vstack((feature_data, label_row))  # (41,sequence_length)
     
     return combined_data
+
+
+# 这个是给inference用的，没有标签的情况
+def time2fsst_without_label(data, fs=250):
+    """
+    将时间域数据转换为FSST特征的函数，适用于没有标签的情况
+    
+    参数:
+        data: numpy数组，shape为(sequence_length,)，仅包含信号数据
+        fs: 采样率，默认250Hz
+    
+    返回:
+        feature_data: numpy数组，shape为(40, ...)，包含FSST特征
+    """
+    # 准备输入数据
+    input_txt = [data]  # 创建包含一个元素的列表
+    
+    # 调用extract_features_fsst函数得到基于FSST的特征
+    feature_fsst = extract_features_fsst_1(input_txt[0], fs)  # list:1  ndarray:(40,sequence_length)
+    feature_data = np.array(feature_fsst[0])
+    
+    return feature_data
+
+
+
+
 
 # if __name__ == "__main__":
 #     # 处理模式: 'cls'(分类)或'seg'(分割)
