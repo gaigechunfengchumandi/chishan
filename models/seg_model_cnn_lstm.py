@@ -69,16 +69,18 @@ class ECGDataset(Dataset):
 class VFSegmentationModel(nn.Module):
     """室颤分割模型，基于1D-CNN和BiLSTM的混合架构"""
     
-    def __init__(self, input_channels=1, hidden_size=64, num_layers=2, dropout=0.3):
+    def __init__(self, mode='time', hidden_size=64, num_layers=2, dropout=0.3):
         """
         初始化模型
         
         Args:
-            input_channels: 输入通道数，默认为1（单导联ECG）
+            mode: 数据处理模式，'time'或'fsst'
             hidden_size: LSTM隐藏层大小
             num_layers: LSTM层数
             dropout: Dropout比率
         """
+        self.mode = mode
+        input_channels = 1 if mode == 'time' else 40
         super(VFSegmentationModel, self).__init__()
         
         # 1D卷积层用于提取局部特征
@@ -129,8 +131,13 @@ class VFSegmentationModel(nn.Module):
         Returns:
             输出张量，形状为 [batch_size, sequence_length, 1]
         """
-        # 修复维度问题：输入应为 [batch_size, channels, sequence_length]
-        x = x.unsqueeze(1)  # 添加通道维度 [batch_size, 1, sequence_length]
+        if self.mode == 'time':
+            # 时域模式 - 使用原来的处理方式
+            # 修复维度问题：输入应为 [batch_size, channels, sequence_length]
+            x = x.unsqueeze(1)  # 添加通道维度 [batch_size, 1, sequence_length]
+        else:
+            # FSST模式 - 使用FSST转换
+            x = x # 因为FSST已经是[batch_size, 40, sequence_length]的形式，不需要调整维度
         
         # 卷积层处理后的形状应为 [batch_size, 128, sequence_length]
         x = F.relu(self.bn1(self.conv1(x)))
@@ -245,7 +252,7 @@ class VFSegmentationModel(nn.Module):
 # 在主程序或需要的地方调用visualize_model函数
 if __name__ == "__main__":
     # 初始化模型
-    model = VFSegmentationModel(input_channels=1, hidden_size=64, num_layers=2, dropout=0.3)
+    model = VFSegmentationModel(mode= 'time', hidden_size=64, num_layers=2, dropout=0.3)
     
     # 可视化模型
     model.visualize_simple()

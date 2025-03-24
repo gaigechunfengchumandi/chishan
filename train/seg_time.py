@@ -12,6 +12,7 @@ from tqdm import tqdm
 # 如果有其他自定义模块或类需要导入，请确保它们在项目路径中可用
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
+sys.path.append('/Users/xingyulu/Public/physionet/utils/fsst_convert')
 from models.seg_model_cnn_lstm import VFSegmentationModel, ECGDataset
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
@@ -280,6 +281,7 @@ def main():
     learning_rate = 0.001
     num_epochs = 50
     patience = 10
+    data_mode = 'fsst'
     model_save_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
     history_plot_path = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/results/training_history.png'
     
@@ -299,9 +301,9 @@ def main():
     test_dir = os.path.join(data_dir, 'test')
 
     # 创建数据集和数据加载器
-    train_dataset = ECGDataset(train_dir, mode='fsst')
-    val_dataset = ECGDataset(val_dir, mode='fsst')
-    test_dataset = ECGDataset(test_dir, mode='fsst')
+    train_dataset = ECGDataset(train_dir, mode=data_mode) # 设置模式为'fsst' 
+    val_dataset = ECGDataset(val_dir, mode=data_mode)
+    test_dataset = ECGDataset(test_dir, mode=data_mode)
     
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -313,7 +315,7 @@ def main():
     print(f'测试集大小: {len(test_dataset)}')
     
     # 初始化模型
-    model = VFSegmentationModel(input_channels=1, hidden_size=64, num_layers=2, dropout=0.3)
+    model = VFSegmentationModel(mode=data_mode, hidden_size=64, num_layers=2, dropout=0.3)
     print(f'模型参数总数: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
     
     # 定义损失函数、优化器和学习率调度器
