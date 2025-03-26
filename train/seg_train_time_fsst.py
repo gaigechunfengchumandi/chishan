@@ -19,6 +19,8 @@ from models.seg_model_cnn_lstm import VFSegmentationModel, ECGDataset
 
 '''结合和了时间和频率两种模式的训练脚本'''
 
+
+
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs=50, device='cuda', patience=10, model_save_path='best_model.pth'):
     """
@@ -42,7 +44,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     model = model.to(device)
     best_val_loss = float('inf')
     counter = 0
-    history = {'train_loss': [], 'val_loss': [], 'val_accuracy': [], 'val_f1': []}
+    history = {'train_loss': [], 'val_loss': [], 'val_accuracy': [], 'train_accuracy': []}
     
     # 添加epoch进度条
     epoch_pbar = tqdm(range(num_epochs), desc='Training', position=0)
@@ -51,6 +53,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         # 训练阶段
         model.train()
         train_loss = 0.0
+        train_preds = []  # 新增：收集训练集预测结果
+        train_labels = []  # 新增：收集训练集真实标签
         
         # 添加batch进度条
         batch_pbar = tqdm(enumerate(train_loader), 
@@ -89,10 +93,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # 前向传播
             outputs = model(signals).squeeze(-1)
             
+            # 收集训练集预测结果和标签
+            preds = (outputs > 0.5).float()
+            train_preds.append(preds.cpu().numpy())
+            train_labels.append(labels.cpu().numpy())
+            
             # 新增梯度裁剪和更严格的数值稳定处理
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             outputs = torch.clamp(outputs, min=1e-4, max=1.0-1e-4)
-            
             
             # 新增数值稳定处理（关键修复）
             outputs = torch.clamp(outputs, min=1e-7, max=1.0-1e-7)
@@ -148,20 +156,25 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         all_labels = np.concatenate([l.flatten() for l in all_labels])
         
         accuracy = accuracy_score(all_labels, all_preds)
-        f1 = f1_score(all_labels, all_preds, average='macro')
         
         # 更新学习率
         scheduler.step(val_loss)
         
         # 保存历史记录
+        # 计算训练集准确率
+        train_preds = np.concatenate([p.flatten() for p in train_preds])
+        train_labels = np.concatenate([l.flatten() for l in train_labels])
+        train_accuracy = accuracy_score(train_labels, train_preds)
+        
+        # 在保存历史记录时添加train_accuracy
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
         history['val_accuracy'].append(accuracy)
-        history['val_f1'].append(f1)
+        history['train_accuracy'].append(train_accuracy)  # 使用计算得到的train_accuracy
         
         print(f'Epoch {epoch+1}/{num_epochs} - '
               f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
-              f'Val Accuracy: {accuracy:.4f}, Val F1: {f1:.4f}')
+              f'Val Accuracy: {accuracy:.4f}, train_accuracy: {train_accuracy:.4f}')
         
         # 早停检查
         if val_loss < best_val_loss:
@@ -174,9 +187,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             counter += 1
             if counter >= patience:
                 print(f'Early stopping triggered after {epoch+1} epochs')
-                break
-    
-    return history
+                
 
 def evaluate_model(model, test_loader, device='cuda'):
     """
@@ -240,6 +251,11 @@ def plot_training_history(history, save_path=None):
         history: 训练历史记录字典
         save_path: 图像保存路径
     """
+    # 添加history参数验证
+    if history is None:
+        print("警告：history参数为None，无法绘制训练历史")
+        return
+        
     plt.figure(figsize=(15, 10))
     
     # 绘制损失曲线
@@ -254,8 +270,8 @@ def plot_training_history(history, save_path=None):
     
     # 绘制评估指标曲线
     plt.subplot(2, 1, 2)
+    plt.plot(history['train_accuracy'], label='Training Accuracy')
     plt.plot(history['val_accuracy'], label='Validation Accuracy')
-    plt.plot(history['val_f1'], label='Validation F1 Score')
     plt.title('Evaluation Metrics')
     plt.xlabel('Epoch')
     plt.ylabel('Score')
@@ -282,12 +298,12 @@ def main():
     # 配置参数
     data_dir = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data'
     batch_size = 16
-    learning_rate = 0.001
+    learning_rate = 0.0001
     num_epochs = 50
-    patience = 10
+    patience = 40
     data_mode = 'fsst' # 这里要指定是'fsst'还是'time'模式
     model_save_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best.pth'
-    history_plot_path = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/results/training_history.png'
+    history_plot_path = '/Users/xingyulu/Public/physionet/result/training_history.png'
     
 
     # region 1.0 数据读取和模型配置
