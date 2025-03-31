@@ -69,10 +69,10 @@ def visualize_and_save(signal, prediction, file_name, save_dir):
 
 def main():
     # 配置参数
-    model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best_time.pth'
-    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/data_denoise'
-    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/86_10s/denoise_inference'
-    data_mode = 'time'
+    model_path = '/Users/xingyulu/Public/physionet/models/saved/vf_segmentation_best_fsst1.pth'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/data_denoise'
+    output_dir = '/Users/xingyulu/Public/监护心电预警/监护部门提供数据/室颤/82_10s/denoise_inference_fsst'
+    data_mode = 'fsst'
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -94,12 +94,12 @@ def main():
     for signal, file_name in zip(signals, file_names):
         print(f'处理文件: {file_name}')
 
+        signal = np.squeeze(signal) # 这个有时候加，有时候不加，反正最后输进模型的shape: (2500,)
         # 转换为FSST特征
         if data_mode == 'fsst':
             fsst_signal = time2fsst_without_label(signal) # shape: (40, 2500)
             prediction = predict_signal(model, fsst_signal, device)
         else:
-            signal = np.squeeze(signal) # 这个有时候加，有时候不加，反正最后输进模型的shape: (2500,)
             prediction = predict_signal(model, signal, device)
         
         # 可视化和保存结果
