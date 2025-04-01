@@ -254,8 +254,10 @@ if __name__ == "__main__":
         os.makedirs(path, exist_ok=True)
     
     # 加载所有npy文件并处理
-    main(data_path, ref_path, picture_path, segments_path)
+    # main(data_path, ref_path, picture_path, segments_path)
 
         
     # 从保存的片段文件中可视化数据
-    visualize_and_save_signal(segments_path, picture_path)
+    # visualize_and_save_signal(segments_path, picture_path)
+
+    

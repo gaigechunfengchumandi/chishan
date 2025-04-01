@@ -13,10 +13,13 @@ from tqdm import tqdm
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
 sys.path.append('/Users/xingyulu/Public/physionet/utils/fsst_convert')
-from models.seg_model_cnn_lstm import AFSegmentationModel, ECGDataset
+from models.seg_model_cnn_lstm import VFSegmentationModel, ECGDataset
 
 
-# 结合和了时间和频率两种模式的训练脚本
+
+'''结合和了时间和频率两种模式的训练脚本'''
+
+
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs=50, device='cuda', patience=10, model_save_path='best_model.pth'):
@@ -47,7 +50,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     epoch_pbar = tqdm(range(num_epochs), desc='Training', position=0)
     
     for epoch in epoch_pbar:
-        # region ==================训练阶段
+        # 训练阶段
         model.train()
         train_loss = 0.0
         train_preds = []  # 新增：收集训练集预测结果
@@ -61,27 +64,54 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                          leave=False)
         
         for batch_idx, (signals, labels) in batch_pbar:
+            signals, labels = signals.to(device), labels.to(device)
+            
+            # 新增输入数据验证
+            if torch.isnan(signals).any():
+                # 创建有效样本掩码（True表示有效样本）
+                valid_mask = ~torch.isnan(signals).any(dim=1)
+                
+                # 过滤无效样本
+                signals = signals[valid_mask]
+                labels = labels[valid_mask]
+                
+                # 如果没有有效样本则跳过本批次
+                if signals.size(0) == 0:
+                    print("[WARNING] 本批次所有样本均包含NaN，跳过训练")
+                    continue
+                
+                # 显示被跳过的样本信息
+                nan_batch_indices = torch.where(~valid_mask)[0]
+                global_indices = [batch_idx * train_loader.batch_size + i.item() 
+                                for i in nan_batch_indices]
+                file_names = [train_loader.dataset.file_list[i] for i in global_indices]
+                print(f"[FILTERED] 已跳过 {len(nan_batch_indices)} 个异常样本，文件列表: {[f.name for f in file_names]}")
 
-            signals = signals.to(device)
-            labels = labels.long().to(device)  # 提前转换类型 shape(batch_size, 2500)
-
-            # 重置优化器梯度
+            # 前向传播前添加梯度清零（保持原有位置）
             optimizer.zero_grad()
+            
             # 前向传播
-            outputs = model(signals) #shape(batch_size, 2500, 5)
-
-            # 调整维度顺序
-            outputs = outputs.permute(0, 2, 1) # shape(batch_size, 5, 2500)
+            outputs = model(signals).squeeze(-1)
             
             # 收集训练集预测结果和标签
-            _, preds = torch.max(outputs, dim=1) # preds形状 (batch_size, 2500)
+            preds = (outputs > 0.5).float()
             train_preds.append(preds.cpu().numpy())
             train_labels.append(labels.cpu().numpy())
             
-            # 计算损失
-            loss = criterion(outputs, labels) 
+            # 新增梯度裁剪和更严格的数值稳定处理
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            outputs = torch.clamp(outputs, min=1e-4, max=1.0-1e-4)
+            
+            # 新增数值稳定处理（关键修复）
+            outputs = torch.clamp(outputs, min=1e-7, max=1.0-1e-7)
+            
+            # 新增标签类型转换（确保标签为浮点型）
+            labels = labels.float()
+            
+            loss = criterion(outputs, labels)
             
             # 反向传播和优化
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
@@ -91,9 +121,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             batch_pbar.set_postfix({'batch_loss': f'{loss.item():.4f}'})
         
         train_loss = train_loss / len(train_loader.dataset)
-        # endregion ====================训练阶段
         
-        # region ====================验证阶段
+        # 验证阶段
         model.eval()
         val_loss = 0.0
         all_preds = []
@@ -105,61 +134,37 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                        position=1,
                        leave=False)
         
-        with torch.no_grad():  # 确保验证阶段不计算梯度
+        with torch.no_grad():
             for signals, labels in val_pbar:
-                # 数据转移到设备并转换标签类型
-                signals = signals.to(device)
-                labels = labels.long().to(device)  # 转换类型 shape(batch_size, 2500)
+                signals, labels = signals.to(device), labels.to(device)
                 
                 # 前向传播
-                outputs = model(signals)
-                outputs = outputs.permute(0, 2, 1) # shape(batch_size, 5, 2500)
-                
-                # 计算损失
+                outputs = model(signals).squeeze(-1)
                 loss = criterion(outputs, labels)
+                
                 val_loss += loss.item() * signals.size(0)
                 
-                # 获取预测类别
-                _, preds = torch.max(outputs, dim=1)
-                
-                # 收集结果（避免重复转换类型）
-                all_preds.append(preds.cpu())  # 保持张量，延迟拼接
-                all_labels.append(labels.cpu())
+                # 收集预测结果和标签
+                preds = (outputs > 0.5).float()
+                all_preds.append(preds.cpu().numpy())
+                all_labels.append(labels.cpu().numpy())
         
-            val_loss = val_loss / len(val_loader.dataset)
-            
-            # 合并结果（更高效的方式）将多个批次的预测结果合并成一个一维数组，以便后续计算准确率（accuracy_score）或其他指标。
-            all_preds = torch.cat(all_preds).numpy().flatten()  # shape: (N*2500,)
-            all_labels = torch.cat(all_labels).numpy().flatten()
-            
-            accuracy = accuracy_score(all_labels, all_preds)
-            
+        val_loss = val_loss / len(val_loader.dataset)
+        
+        # 计算评估指标
+        all_preds = np.concatenate([p.flatten() for p in all_preds])
+        all_labels = np.concatenate([l.flatten() for l in all_labels])
+        
+        accuracy = accuracy_score(all_labels, all_preds)
+        
         # 更新学习率
         scheduler.step(val_loss)
         
         # 保存历史记录
         # 计算训练集准确率
-        # 添加形状检查和诊断信息
-        print(f"训练预测形状检查: {[p.shape for p in train_preds[:3]]}...")
-        print(f"训练标签形状检查: {[l.shape for l in train_labels[:3]]}...")
-        
-        try:
-            train_preds_flat = np.concatenate([p.flatten() for p in train_preds])
-            train_labels_flat = np.concatenate([l.flatten() for l in train_labels])
-            
-            print(f"训练预测展平后形状: {train_preds_flat.shape}")
-            print(f"训练标签展平后形状: {train_labels_flat.shape}")
-            
-            # 如果形状不匹配，尝试调整
-            if train_preds_flat.shape != train_labels_flat.shape:
-                print(f"警告：形状不匹配! 预测:{train_preds_flat.shape} vs 标签:{train_labels_flat.shape}")
-                
-            train_accuracy = accuracy_score(train_labels_flat, train_preds_flat)
-        except Exception as e:
-            print(f"计算训练准确率时出错: {str(e)}")
-            print(f"预测数量: {len(train_preds)}, 标签数量: {len(train_labels)}")
-            # 设置一个默认值
-            train_accuracy = 0.0
+        train_preds = np.concatenate([p.flatten() for p in train_preds])
+        train_labels = np.concatenate([l.flatten() for l in train_labels])
+        train_accuracy = accuracy_score(train_labels, train_preds)
         
         # 在保存历史记录时添加train_accuracy
         history['train_loss'].append(train_loss)
@@ -182,41 +187,58 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             counter += 1
             if counter >= patience:
                 print(f'Early stopping triggered after {epoch+1} epochs')
-        # endregion ====================验证阶段
                 
 
 def evaluate_model(model, test_loader, device='cuda'):
+    """
+    评估模型
+    
+    Args:
+        model: 模型实例
+        test_loader: 测试数据加载器
+        device: 评估设备
+        
+    Returns:
+        评估指标字典
+    """
     model = model.to(device)
     model.eval()
     
     all_preds = []
     all_labels = []
+    all_probs = []
     
     with torch.no_grad():
         for signals, labels in test_loader:
             signals, labels = signals.to(device), labels.to(device)
-            labels = labels.long()
-
-            # 前向传播
-            outputs = model(signals)
             
-            # 获取预测类别 (形状 [batch_size, 2500])
-            _, preds = torch.max(outputs, dim=-1)
+            # 前向传播
+            outputs = model(signals).squeeze(-1)
+            
+            # 新增数值检查
+            if (outputs.min() < 0) or (outputs.max() > 1):
+                print(f"测试输出越界: min={outputs.min().item():.4f}, max={outputs.max().item():.4f}")
             
             # 收集预测结果和标签
-            all_preds.append(preds.cpu().numpy())
+            probs = outputs.cpu().numpy()
+            preds = (outputs > 0.5).float().cpu().numpy()
+            
+            all_probs.append(probs)
+            all_preds.append(preds)
             all_labels.append(labels.cpu().numpy())
     
     # 合并所有批次的结果
-    all_preds = np.concatenate(all_preds).flatten()
-    all_labels = np.concatenate(all_labels).flatten()
+    all_probs = np.concatenate([p.flatten() for p in all_probs])
+    all_preds = np.concatenate([p.flatten() for p in all_preds])
+    all_labels = np.concatenate([l.flatten() for l in all_labels])
     
     # 计算评估指标
     metrics = {
         'accuracy': accuracy_score(all_labels, all_preds),
         'precision': precision_score(all_labels, all_preds, average='macro'),
         'recall': recall_score(all_labels, all_preds, average='macro'),
-        'f1': f1_score(all_labels, all_preds, average='macro')
+        'f1': f1_score(all_labels, all_preds, average='macro'),
+        'auc': roc_auc_score(all_labels, all_probs)
     }
     
     return metrics
@@ -274,7 +296,7 @@ def main():
     np.random.seed(42)
     
     # 配置参数
-    data_dir = '/Users/xingyulu/Public/afafaf/处理第一例'
+    data_dir = '/Users/xingyulu/Public/监护心电预警/公开数据/室颤/分割任务/data'
     batch_size = 16
     learning_rate = 0.0001
     num_epochs = 50
@@ -313,11 +335,11 @@ def main():
     print(f'测试集大小: {len(test_dataset)}')
     
     # 初始化模型
-    model = AFSegmentationModel(mode=data_mode, hidden_size=64, num_layers=2, dropout=0.3)
+    model = VFSegmentationModel(mode=data_mode, hidden_size=64, num_layers=2, dropout=0.3)
     print(f'模型参数总数: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
     
     # 定义损失函数、优化器和学习率调度器
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=5, verbose=True

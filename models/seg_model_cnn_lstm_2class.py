@@ -66,7 +66,7 @@ class ECGDataset(Dataset):
         else:
             raise ValueError(f"不支持的模式: {self.mode}")
 
-class AFSegmentationModel(nn.Module):
+class VFSegmentationModel(nn.Module):
     """室颤分割模型，基于1D-CNN和BiLSTM的混合架构"""
     
     def __init__(self, mode='time', hidden_size=64, num_layers=2, dropout=0.3):
@@ -81,7 +81,7 @@ class AFSegmentationModel(nn.Module):
         """
         self.mode = mode
         input_channels = 1 if mode == 'time' else 40
-        super(AFSegmentationModel, self).__init__()
+        super(VFSegmentationModel, self).__init__()
         
         # 1D卷积层用于提取局部特征
         self.conv1 = nn.Conv1d(input_channels, 32, kernel_size=5, stride=1, padding=2)
@@ -108,9 +108,7 @@ class AFSegmentationModel(nn.Module):
         
         # 输出层
         self.fc1 = nn.Linear(hidden_size * 2, hidden_size)
-        # self.fc2 = nn.Linear(hidden_size, 1) # 这是2分类的输出层
-        # 修改输出层为5分类
-        self.fc2 = nn.Linear(hidden_size, 5)  # 修改输出维度为5
+        self.fc2 = nn.Linear(hidden_size, 1)
         
         # Dropout层
         self.dropout = nn.Dropout(dropout)
@@ -158,8 +156,7 @@ class AFSegmentationModel(nn.Module):
         x = self.dropout(F.relu(self.fc1(context_vector)))
         x = self.fc2(x)
         
-        # return torch.sigmoid(x) # 这是2分类的输出层
-        return F.softmax(x, dim=-1)  # 使用softmax代替sigmoid
+        return torch.sigmoid(x)
 
     def visualize_simple(self, save_path="/Users/xingyulu/Public/physionet/plots/model_simple.png"):
         """
@@ -252,7 +249,7 @@ class AFSegmentationModel(nn.Module):
 # 在主程序或需要的地方调用visualize_model函数
 if __name__ == "__main__":
     # 初始化模型
-    model = AFSegmentationModel(mode= 'time', hidden_size=64, num_layers=2, dropout=0.3)
+    model = VFSegmentationModel(mode= 'time', hidden_size=64, num_layers=2, dropout=0.3)
     
     # 可视化模型
     model.visualize_simple()
