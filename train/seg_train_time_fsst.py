@@ -17,7 +17,6 @@ from models.seg_model_cnn_lstm import AFSegmentationModel, ECGDataset
 
 
 # 结合和了时间和频率两种模式的训练脚本
-
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
                 num_epochs=50, device='cuda', patience=10, model_save_path='best_model.pth'):
     """
@@ -50,8 +49,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         # region ==================训练阶段
         model.train()
         train_loss = 0.0
-        train_preds = []  # 新增：收集训练集预测结果
-        train_labels = []  # 新增：收集训练集真实标签
+        train_correct = 0  # 新增：训练正确预测数
+        train_total = 0    # 新增：训练总样本数
         
         # 添加batch进度条
         batch_pbar = tqdm(enumerate(train_loader), 
@@ -61,11 +60,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                          leave=False)
         
         for batch_idx, (signals, labels) in batch_pbar:
-
             signals = signals.to(device)
             labels = labels.long().to(device)  # 提前转换类型 shape(batch_size, 2500)
 
-            # 重置优化器梯度
             optimizer.zero_grad()
             # 前向传播
             outputs = model(signals) #shape(batch_size, 2500, 5)
@@ -73,31 +70,36 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             # 调整维度顺序
             outputs = outputs.permute(0, 2, 1) # shape(batch_size, 5, 2500)
             
-            # 收集训练集预测结果和标签
-            _, preds = torch.max(outputs, dim=1) # preds形状 (batch_size, 2500)
-            train_preds.append(preds.cpu().numpy())
-            train_labels.append(labels.cpu().numpy())
+            # 获取预测类别并计算准确率
+            _, preds = torch.max(outputs, dim=1)
+            batch_correct = (preds == labels).sum().item()
+            batch_total = labels.numel()
             
-            # 计算损失
-            loss = criterion(outputs, labels) 
+            # 累加到总计数器
+            train_correct += batch_correct
+            train_total += batch_total
             
-            # 反向传播和优化
+            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             
             train_loss += loss.item() * signals.size(0)
             
-            # 更新batch进度条
-            batch_pbar.set_postfix({'batch_loss': f'{loss.item():.4f}'})
+            # 更新进度条显示当前批次损失和准确率
+            batch_pbar.set_postfix({
+                'batch_loss': f'{loss.item():.4f}',
+                'batch_acc': f'{batch_correct/batch_total:.4f}'
+            })
         
         train_loss = train_loss / len(train_loader.dataset)
+        train_accuracy = train_correct / train_total  # 计算整体训练准确率
         # endregion ====================训练阶段
         
         # region ====================验证阶段
         model.eval()
         val_loss = 0.0
-        all_preds = []
-        all_labels = []
+        val_correct = 0  # 正确预测的样本数
+        val_total = 0    # 总样本数
         
         # 添加验证集进度条
         val_pbar = tqdm(val_loader, 
@@ -122,55 +124,36 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 # 获取预测类别
                 _, preds = torch.max(outputs, dim=1)
                 
-                # 收集结果（避免重复转换类型）
-                all_preds.append(preds.cpu())  # 保持张量，延迟拼接
-                all_labels.append(labels.cpu())
+                # 计算当前批次的正确预测数
+                batch_correct = (preds == labels).sum().item()
+                batch_total = labels.numel()  # 当前批次的总样本数
+                
+                # 累加到总计数器
+                val_correct += batch_correct
+                val_total += batch_total
+                
+                # 更新进度条显示当前批次准确率
+                val_pbar.set_postfix({'batch_acc': f'{batch_correct/batch_total:.4f}'})
         
-            val_loss = val_loss / len(val_loader.dataset)
-            
-            # 合并结果（更高效的方式）将多个批次的预测结果合并成一个一维数组，以便后续计算准确率（accuracy_score）或其他指标。
-            all_preds = torch.cat(all_preds).numpy().flatten()  # shape: (N*2500,)
-            all_labels = torch.cat(all_labels).numpy().flatten()
-            
-            accuracy = accuracy_score(all_labels, all_preds)
-            
+        # 计算总体验证损失和准确率
+        val_loss = val_loss / len(val_loader.dataset)
+        accuracy = val_correct / val_total
+        
         # 更新学习率
         scheduler.step(val_loss)
         
-        # 保存历史记录
-        # 计算训练集准确率
-        # 添加形状检查和诊断信息
-        print(f"训练预测形状检查: {[p.shape for p in train_preds[:3]]}...")
-        print(f"训练标签形状检查: {[l.shape for l in train_labels[:3]]}...")
-        
-        try:
-            train_preds_flat = np.concatenate([p.flatten() for p in train_preds])
-            train_labels_flat = np.concatenate([l.flatten() for l in train_labels])
-            
-            print(f"训练预测展平后形状: {train_preds_flat.shape}")
-            print(f"训练标签展平后形状: {train_labels_flat.shape}")
-            
-            # 如果形状不匹配，尝试调整
-            if train_preds_flat.shape != train_labels_flat.shape:
-                print(f"警告：形状不匹配! 预测:{train_preds_flat.shape} vs 标签:{train_labels_flat.shape}")
-                
-            train_accuracy = accuracy_score(train_labels_flat, train_preds_flat)
-        except Exception as e:
-            print(f"计算训练准确率时出错: {str(e)}")
-            print(f"预测数量: {len(train_preds)}, 标签数量: {len(train_labels)}")
-            # 设置一个默认值
-            train_accuracy = 0.0
         
         # 在保存历史记录时添加train_accuracy
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
         history['val_accuracy'].append(accuracy)
-        history['train_accuracy'].append(train_accuracy)  # 使用计算得到的train_accuracy
-        
+        history['train_accuracy'].append(train_accuracy)  # 新增：计算并保存训练集准确率
+
         print(f'Epoch {epoch+1}/{num_epochs} - '
               f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
               f'Val Accuracy: {accuracy:.4f}, train_accuracy: {train_accuracy:.4f}')
-        
+        # endregion ====================验证阶段
+
         # 早停检查
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -182,7 +165,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             counter += 1
             if counter >= patience:
                 print(f'Early stopping triggered after {epoch+1} epochs')
-        # endregion ====================验证阶段
+        
                 
 
 def evaluate_model(model, test_loader, device='cuda'):
@@ -274,7 +257,7 @@ def main():
     np.random.seed(42)
     
     # 配置参数
-    data_dir = '/Users/xingyulu/Public/afafaf/处理第一例'
+    data_dir = '/Users/xingyulu/Public/afafaf/用于尝试训练'
     batch_size = 16
     learning_rate = 0.0001
     num_epochs = 50

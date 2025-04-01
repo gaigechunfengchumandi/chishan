@@ -154,7 +154,7 @@ def visualize_and_save_signal(segments_path, picture_path, max_samples=1280):
                 signal_data = combined_data[:, 0]
                 segmentation_label = combined_data[:, 1]
                 
-                plt.figure(figsize=(12, 6))
+                plt.figure(figsize=(20, 6))
                 
                 # 绘制信号数据
                 plt.plot(signal_data, 'b-', alpha=0.7, label='Signal')
@@ -162,25 +162,25 @@ def visualize_and_save_signal(segments_path, picture_path, max_samples=1280):
                 # 使用颜色区分不同标签
                 # 定义标签对应的颜色
                 label_colors = {
-                    0: 'green',   # N类型
-                    2: 'red',     # V类型
-                    3: 'orange',  # 其他类型
-                    4: 'purple'   # af类型
+                    0: 'lightgreen',   # N类型
+                    2: 'lightcoral',   # V类型
+                    3: 'moccasin',     # 其他类型
+                    4: 'plum'          # af类型
                 }
                 
                 # 为每个样本点上色
                 for i in range(len(signal_data)):
                     label = int(segmentation_label[i])
                     color = label_colors.get(label, 'gray')
-                    plt.axvspan(i, i+1, alpha=0.3, color=color)
+                    plt.axvspan(i, i+1, alpha=0.99, color=color)
                 
                 # 添加图例
                 from matplotlib.patches import Patch
                 legend_elements = [
-                    Patch(facecolor='green', alpha=0.3, label='N Type (0)'),
-                    Patch(facecolor='red', alpha=0.3, label='V Type (2)'),
-                    Patch(facecolor='orange', alpha=0.3, label='Other Type (3)'),
-                    Patch(facecolor='purple', alpha=0.3, label='AF Type (4)')
+                    Patch(facecolor='lightgreen', alpha=0.7, label='N Type (0)'),
+                    Patch(facecolor='lightcoral', alpha=0.7, label='V Type (2)'),
+                    Patch(facecolor='moccasin', alpha=0.7, label='Other Type (3)'),
+                    Patch(facecolor='plum', alpha=0.7, label='AF Type (4)')
                 ]
                 plt.legend(handles=legend_elements, loc='upper right')
                 
@@ -244,10 +244,10 @@ def main(directory, ref_path=None, picture_path=None, segments_path=None):
 
 if __name__ == "__main__":
     # 定义所有路径
-    data_path = '/Users/xingyulu/Public/afafaf/try/data'
-    ref_path = '/Users/xingyulu/Public/afafaf/try/ref'
-    picture_path = '/Users/xingyulu/Public/afafaf/try/picture'
-    segments_path = '/Users/xingyulu/Public/afafaf/try/segments'
+    data_path = '/Users/xingyulu/Public/afafaf/第二例/data'
+    ref_path = '/Users/xingyulu/Public/afafaf/第二例/ref'
+    picture_path = '/Users/xingyulu/Public/afafaf/第二例/picture'
+    segments_path = '/Users/xingyulu/Public/afafaf/第二例/segments'
     
     # 确保所有目录都存在
     for path in [data_path, ref_path, picture_path, segments_path]:
@@ -258,6 +258,6 @@ if __name__ == "__main__":
 
         
     # 从保存的片段文件中可视化数据
-    # visualize_and_save_signal(segments_path, picture_path)
+    visualize_and_save_signal(segments_path, picture_path)
 
     

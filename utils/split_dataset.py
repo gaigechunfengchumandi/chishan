@@ -50,7 +50,7 @@ def split_dataset(segments_path, output_dir, test_size=0.2, val_size=0.1, random
     print(f"测试集: {len(test_files)} 个文件")
 
 if __name__ == "__main__":
-    segments_path = '/Users/xingyulu/Public/afafaf/处理第一例/segments'
-    output_dir = '/Users/xingyulu/Public/afafaf/处理第一例'
+    segments_path = '/Users/xingyulu/Public/afafaf/第二例/segments'
+    output_dir = '/Users/xingyulu/Public/afafaf/第二例'
     
     split_dataset(segments_path, output_dir)

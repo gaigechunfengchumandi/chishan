@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import sys
 sys.path.append('/Users/xingyulu/Public/physionet')
 from utils.fsst_convert.time2fsst_cls import time2fsst_for_loader # 把频域转换的操作集成到数据读取的过程中
-
+from torch.utils.tensorboard import SummaryWriter
 class ECGDataset(Dataset):
     """ECG数据集类，用于加载和预处理ECG数据"""
     
@@ -161,99 +161,25 @@ class AFSegmentationModel(nn.Module):
         # return torch.sigmoid(x) # 这是2分类的输出层
         return F.softmax(x, dim=-1)  # 使用softmax代替sigmoid
 
-    def visualize_simple(self, save_path="/Users/xingyulu/Public/physionet/plots/model_simple.png"):
-        """
-        使用matplotlib绘制美观的模型结构图
-        Args:
-            save_path: 保存图像的路径
-        """
-        try:
-            import matplotlib.pyplot as plt
-            import numpy as np
-            
-            # 获取模型的所有层并按类型分组
-            layers = []
-            layer_types = {
-                'Conv1d': '#FF9999',     # 红色系
-                'BatchNorm1d': '#99FF99', # 绿色系
-                'MaxPool1d': '#9999FF',   # 蓝色系
-                'Linear': '#FFCC99',      # 橙色系
-                'Dropout': '#FF99FF'      # 紫色系
-            }
-            
-            for name, module in self.named_children():
-                if isinstance(module, nn.Sequential):
-                    for n, m in module.named_children():
-                        layers.append({
-                            'name': f"{name}.{n}",
-                            'type': m.__class__.__name__,
-                            'color': layer_types.get(m.__class__.__name__, '#CCCCCC')
-                        })
-                else:
-                    layers.append({
-                        'name': name,
-                        'type': module.__class__.__name__,
-                        'color': layer_types.get(module.__class__.__name__, '#CCCCCC')
-                    })
-            
-            # 创建图形
-            plt.style.use('seaborn')
-            fig = plt.figure(figsize=(12, len(layers) * 0.7))
-            ax = plt.gca()
-            y_positions = np.arange(len(layers))
-            
-            # 绘制每一层
-            bars = ax.barh(y_positions, [1] * len(layers), height=0.5, 
-                          align='center', 
-                          color=[layer['color'] for layer in layers],
-                          alpha=0.7)
-            
-            # 添加层名称和类型
-            for i, layer in enumerate(layers):
-                # 添加层名称
-                ax.text(0.02, i, layer['name'], 
-                       ha='left', va='center',
-                       fontsize=10, fontweight='bold')
-                # 添加层类型
-                ax.text(0.98, i, layer['type'],
-                       ha='right', va='center',
-                       fontsize=9, style='italic')
-            
-            # 设置图形属性
-            ax.set_yticks([])
-            ax.set_xticks([])
-            ax.set_xlim(-0.1, 1.1)
-            
-            # 添加标题和边框
-            plt.title('神经网络模型结构', pad=20, fontsize=14, fontweight='bold')
-            
-            # 添加图例
-            legend_elements = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) 
-                             for color in layer_types.values()]
-            ax.legend(legend_elements, layer_types.keys(), 
-                     loc='center left', bbox_to_anchor=(1, 0.5))
-            
-            # 添加层间连接线
-            for i in range(len(layers)-1):
-                ax.plot([0.5, 0.5], [i+0.3, i+0.7], 
-                       color='gray', linestyle='--', alpha=0.5)
-            
-            # 保存图形
-            plt.tight_layout()
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            print(f"美化后的模型结构图已保存至: {save_path}")
-        except ImportError:
-            print("请先安装matplotlib: pip install matplotlib")
-
 
 
 # 在主程序或需要的地方调用visualize_model函数
 if __name__ == "__main__":
     # 初始化模型
-    model = AFSegmentationModel(mode= 'time', hidden_size=64, num_layers=2, dropout=0.3)
+    model = AFSegmentationModel(mode='time', hidden_size=64, num_layers=2, dropout=0.3)
     
     # 可视化模型
-    model.visualize_simple()
+    writer = SummaryWriter('runs/ecg_unet_transformer_model')
+    
+    # 创建一个示例输入 - 假设序列长度为2500
+    dummy_input = torch.randn(1, 2500)  # [batch_size, sequence_length]
+    
+    # 添加模型图到TensorBoard
+    writer.add_graph(model, dummy_input)
+    
+    # 关闭SummaryWriter
+    writer.close()
+    
+    print("模型结构已保存到TensorBoard，使用以下命令查看：")
+    print("tensorboard --logdir=runs/ecg_unet_transformer_model")
 
