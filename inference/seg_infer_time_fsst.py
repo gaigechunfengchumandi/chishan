@@ -97,8 +97,8 @@ def visualize_and_save_signal(signal, prediction, file_name, picture_path):
 
 def main():
     # 配置参数
-    model_path = '/Users/xingyulu/Public/physionet/models/saved/af_segmentation_best_time.pth'
-    data_dir = '/Users/xingyulu/Public/afafaf/推理尝试/data'
+    model_path = '/Users/xingyulu/Public/physionet/models/saved/af_segmentation_best_time1.pth'
+    data_dir = '/Users/xingyulu/Public/afafaf/用于尝试训练/test'
     output_picture_dir = '/Users/xingyulu/Public/afafaf/推理尝试/picture'
     data_mode = 'time' 
     
@@ -122,25 +122,32 @@ def main():
     for file_path in files:
         file_name = file_path.stem
         print(f'处理文件: {file_name}')
+        try:
+            # 加载单个文件
+            data = np.load(file_path)
+            signal = data[:, 0]  # 取第一列作为信号数据
+            
+            signal = np.squeeze(signal)  # 确保信号是1D的
+            # 转换为FSST特征
+            if data_mode == 'fsst':
+                fsst_signal = time2fsst_without_label(signal)  # shape: (40, 2500)
+                prediction = predict_signal(model, fsst_signal, device)
+            else:
+                prediction = predict_signal(model, signal, device)
+            
+            # 可视化和保存结果
+            visualize_and_save_signal(signal, prediction, file_name, output_picture_dir)
+            
+            # 保存预测结果
+            # np.save(os.path.join(output_dir, f'{file_name}_pred.npy'), prediction)
         
-        # 加载单个文件
-        data = np.load(file_path)
-        signal = data[:, 0]  # 取第一列作为信号数据
+            # 手动清理
+            del signal, prediction
+            gc.collect()  # 强制垃圾回收
         
-        signal = np.squeeze(signal)  # 确保信号是1D的
-        # 转换为FSST特征
-        if data_mode == 'fsst':
-            fsst_signal = time2fsst_without_label(signal)  # shape: (40, 2500)
-            prediction = predict_signal(model, fsst_signal, device)
-        else:
-            prediction = predict_signal(model, signal, device)
-        
-        # 可视化和保存结果
-        visualize_and_save_signal(signal, prediction, file_name, output_picture_dir)
-        
-        # 保存预测结果
-        # np.save(os.path.join(output_dir, f'{file_name}_pred.npy'), prediction)
-    
+        except Exception as e:
+            print(f"处理文件 {file_name} 时出错: {e}")
+            continue
     print('推理完成！')
     print(f'结果保存在: {output_picture_dir}')
 

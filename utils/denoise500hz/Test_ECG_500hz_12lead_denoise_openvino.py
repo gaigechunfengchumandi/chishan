@@ -38,8 +38,8 @@ def initialize_variable():
         ie = IECore()
         abs_file = __file__
         folder = os.path.split(abs_file)[0]
-        model_xml = "denoise500hz/DenoiseModel_500hz_12lead_1s.xml"
-        model_bin = "denoise500hz/DenoiseModel_500hz_12lead_1s.bin"
+        model_xml = "utils/denoise500hz/DenoiseModel_500hz_12lead_1s.xml"
+        model_bin = "utils/denoise500hz/DenoiseModel_500hz_12lead_1s.bin"
         net = ie.read_network(model=model_xml, weights=model_bin)
         exec_net = ie.load_network(network=net, device_name='CPU')
 

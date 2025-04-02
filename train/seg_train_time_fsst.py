@@ -100,13 +100,11 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_loss = 0.0
         val_correct = 0  # 正确预测的样本数
         val_total = 0    # 总样本数
-        
         # 添加验证集进度条
         val_pbar = tqdm(val_loader, 
                        desc='Validating',
                        position=1,
                        leave=False)
-        
         with torch.no_grad():  # 确保验证阶段不计算梯度
             for signals, labels in val_pbar:
                 # 数据转移到设备并转换标签类型
@@ -141,8 +139,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         
         # 更新学习率
         scheduler.step(val_loss)
-        
-        
         # 在保存历史记录时添加train_accuracy
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)

@@ -156,19 +156,18 @@ class UNet(nn.Module):
         self.conv_last = nn.Conv1d(64, 2, kernel_size=1)
         self.adaptive_pool = nn.AdaptiveAvgPool1d(1)
         
-    def _fuse_features(self, conv_features, transformer_input):
+    def _fuse_features(self, conv_features, transformer_features):
         """
         融合卷积特征和Transformer特征
         
         Args:
             conv_features: 卷积网络提取的特征
-            transformer_input: 原始输入，用于Transformer特征提取
+            transformer_features: Transformer的特征提取结果
             
         Returns:
             融合后的特征
         """
-        # Transformer特征提取
-        transformer_features = self.transformer(transformer_input)
+        
         
         # 调整transformer_features的大小以匹配conv_features
         target_size = conv_features.size(2)
@@ -191,10 +190,15 @@ class UNet(nn.Module):
         conv1 = self.encoder1(x)
         conv2 = self.encoder2(conv1)
         conv3 = self.encoder3(conv2)
+
+        
         
         # 如果启用Transformer，则进行特征融合
         if self.use_transformer:
-            conv3 = self._fuse_features(conv3, transformer_input)
+            # Transformer特征提取
+            transformer_output = self.transformer(transformer_input)
+            print("Transformer 输出形状:", transformer_output.shape, "正确形状应该是torch.Size([2, 256, 2500])")  # 检查是否合理
+            conv3 = self._fuse_features(conv3, transformer_output)
         
         # Bridge
         bridge = self.bridge(conv3)
@@ -217,31 +221,31 @@ if __name__ == "__main__":
     writer = SummaryWriter('runs/ecg_unet_transformer_model')
     # 创建模型实例
     print("初始化模型...")
-    model_with_transformer = UNet(input_size=2500, use_transformer=True)
+    model_without_transformer = UNet(input_size=2500, use_transformer=False)
     
     # 生成较小的测试输入
     test_input = torch.randn(batch_size, 1, 2500)
 
-    # 先运行一次前向传播
-    try:
-        output = model_with_transformer(test_input)
-        print(f"模型测试成功，输出形状: {output.shape}")
-    
-        # 使用 torch.jit.trace 创建可追踪的模型
-        script_model = torch.jit.script(model_with_transformer, test_input)
-        writer.add_graph(script_model, test_input)
-        print("模型图保存成功")
-    except Exception as e:
-        print(f"错误: {e}")
-    
-    # 测试不带Transformer的模型
+    # 测试带Transformer的模型
     # try:
-    #     output = model_without_transformer(test_input)
+    #     output = model_with_transformer(test_input)
     #     print(f"模型测试成功，输出形状: {output.shape}")
-    #     # 添加模型图到 TensorBoard
-    #     writer.add_graph(model_without_transformer, test_input)
+    
+    #     # 使用 torch.jit.trace 创建可追踪的模型
+    #     script_model = torch.jit.script(model_with_transformer, test_input)
+    #     writer.add_graph(script_model, test_input, verbose=False)  # 减少冗余信息
+    #     print("模型图保存成功")
     # except Exception as e:
     #     print(f"错误: {e}")
+    
+    # 测试不带Transformer的模型
+    try:
+        output = model_without_transformer(test_input)
+        print(f"模型测试成功，输出形状: {output.shape}")
+        # 添加模型图到 TensorBoard
+        writer.add_graph(model_without_transformer, test_input)
+    except Exception as e:
+        print(f"错误: {e}")
 
 
     finally:
