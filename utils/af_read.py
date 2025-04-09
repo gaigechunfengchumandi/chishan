@@ -244,17 +244,17 @@ def main(directory, ref_path=None, picture_path=None, segments_path=None):
 
 if __name__ == "__main__":
     # 定义所有路径
-    data_path = '/Users/xingyulu/Public/afafaf/第二例/data'
-    ref_path = '/Users/xingyulu/Public/afafaf/第二例/ref'
-    picture_path = '/Users/xingyulu/Public/afafaf/第二例/picture'
-    segments_path = '/Users/xingyulu/Public/afafaf/第二例/segments'
+    data_path = '/Users/xingyulu/Public/afafaf/室性心搏/II导联24小时信号数据/data'
+    ref_path = '/Users/xingyulu/Public/afafaf/室性心搏/II导联24小时信号数据/ref'
+    picture_path = '/Users/xingyulu/Public/afafaf/室性心搏/II导联24小时信号数据/picture'
+    segments_path = '/Users/xingyulu/Public/afafaf/室性心搏/II导联24小时信号数据/segments'
     
     # 确保所有目录都存在
     for path in [data_path, ref_path, picture_path, segments_path]:
         os.makedirs(path, exist_ok=True)
     
     # 加载所有npy文件并处理
-    # main(data_path, ref_path, picture_path, segments_path)
+    main(data_path, ref_path, picture_path, segments_path)
 
         
     # 从保存的片段文件中可视化数据

@@ -1,13 +1,9 @@
-# 这个文件是对10s数据进行降噪处理，然后保存为npy格式，用来降噪监护的数据，1导联
+# 这个文件是对10s数据进行降噪处理，然后保存为npy格式，用来降噪监护的数据，II导联
 
-
-
-import sys
-sys.path.append('/Users/xingyulu/Public/physionet/utils')
 
 import os   
 import numpy as np
-from denoise500hz.Test_ECG_500hz_12lead_denoise_openvino import initialize_variable as init_denoise500hz, predict_ecg_data as denoise_500hz
+from Test_ECG_500hz_12lead_denoise_openvino import initialize_variable as init_denoise500hz, predict_ecg_data as denoise_500hz
 
 
 

@@ -30,9 +30,9 @@ def predict_signal(model, signal, device='cuda', window_size=2500):
     
     with torch.no_grad():
         # 前向传播
-        output = model(signal_tensor)
+        output = model(signal_tensor) # shape: [1, 2500, 5]
         # 获取预测结果
-        _, predictions = torch.max(output, dim=-1)  # 对于多分类任务
+        _, predictions = torch.max(output, dim=-1)  # predictions shape: [1, 2500]
         predictions = predictions.cpu().numpy()
     
     return predictions[0]
@@ -133,7 +133,7 @@ def main():
                 fsst_signal = time2fsst_without_label(signal)  # shape: (40, 2500)
                 prediction = predict_signal(model, fsst_signal, device)
             else:
-                prediction = predict_signal(model, signal, device)
+                prediction = predict_signal(model, signal, device) #prediction（2500，）
             
             # 可视化和保存结果
             visualize_and_save_signal(signal, prediction, file_name, output_picture_dir)
