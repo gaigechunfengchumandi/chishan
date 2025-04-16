@@ -129,6 +129,10 @@ class TransformerEncoder(nn.Module):
         if input_size % patch_size != 0:
             raise ValueError(f"输入尺寸{input_size}必须能被patch_size{patch_size}整除")
             
+        # 创建可学习的位置编码参数
+        # num_patches: patch的数量
+        # embed_dim: 每个位置编码向量的维度
+        # 初始化为全0，在训练过程中会学习合适的位置编码值
         self.pos_encoder = nn.Parameter(torch.zeros(self.num_patches, embed_dim))
         self.layers = nn.ModuleList([
             TransformerBlock(embed_dim, num_heads, ff_dim, dropout)
@@ -140,14 +144,14 @@ class TransformerEncoder(nn.Module):
         # 输入形状: [batch_size, 1, seq_len]
         batch_size = x.shape[0]
         
-        # 使用卷积进行patch划分 [batch_size, embed_dim, num_patches]
+        # 使用卷积进行patch划分 [batch_size, embed_dim, num_patches] [2, 1, 2500] -> [2, 256, 50]
         x = self.patch_embed(x)
         
         # 转换为Transformer输入格式 [num_patches, batch_size, embed_dim]
-        x = x.permute(2, 0, 1)
+        x = x.permute(2, 0, 1) # [50, 2, 256]
         
         # 添加位置编码
-        x = x + self.pos_encoder.unsqueeze(1)
+        x = x + self.pos_encoder.unsqueeze(1) # [50, 2, 256]
         
         # 通过Transformer层
         for layer in self.layers:
