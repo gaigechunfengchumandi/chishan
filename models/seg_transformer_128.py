@@ -50,13 +50,27 @@ class TransformerSegmentation128(nn.Module):
     def __init__(self, input_size=1280, num_classes=5, patch_size=128):
         super().__init__()
         num_patches = input_size // patch_size
-        
+
+        # Add adaptive pooling to match dimensions
+        self.residual_pool = nn.AdaptiveAvgPool1d(num_patches)
+        self.residual_conv = nn.Conv1d(1, 128, kernel_size=1) #(stride)默认为1
+
         # Patch embedding
-        self.patch_embed = nn.Conv1d(
-            in_channels=1,
-            out_channels=128,
-            kernel_size=patch_size,
-            stride=patch_size
+        self.patch_embed = nn.Sequential(
+            nn.Conv1d(1, 512, kernel_size=10, stride=2),
+            nn.GELU(),
+            nn.Conv1d(512, 512, kernel_size=3, stride=2),
+            nn.GELU(),
+            nn.Conv1d(512, 512, kernel_size=3, stride=2),
+            nn.GELU(),
+            nn.Conv1d(512, 512, kernel_size=3, stride=2),
+            nn.GELU(),
+            nn.Conv1d(512, 512, kernel_size=3, stride=2),
+            nn.GELU(),
+            nn.Conv1d(512, 512, kernel_size=2, stride=2, padding=1),
+            nn.GELU(),
+            nn.Conv1d(512, 128, kernel_size=2, stride=2),
+            nn.GELU()
         )
         
         # Transformer encoder
@@ -72,9 +86,12 @@ class TransformerSegmentation128(nn.Module):
         self.conv_last = nn.Conv1d(128, out_channels=num_classes, kernel_size=1)
         self.upsampling = nn.Upsample(size=1280, mode='linear')
   
-    def forward(self, x):
-        x = self.patch_embed(x) # (2, 128, 10) (batch, channel, num_patches)
-        x = x.permute(2, 0, 1)
+    def forward(self, x): # x(2,1,1280)
+        residual = self.residual_conv(x)# residual (2,128,1280)
+        residual = self.residual_pool(residual)  # Match dimensions        residual (2,128,10)
+        x = self.patch_embed(x)  # (batch, 128, num_patches) (2,128,10)
+        x = x + residual  # Now dimensions match  (2,128,10)
+        x = x.permute(2, 0, 1)  #(10,2,128)
         
         features = self.transformer(x) # （2，128，10）
 

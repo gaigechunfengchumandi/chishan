@@ -69,32 +69,28 @@ class TransformerBlock(nn.Module):
 class TransformerEncoder(nn.Module):
     def __init__(self, num_patches, embed_dim, num_heads, ff_dim, num_layers, dropout=0.1):
         super().__init__()
-        # 创建可学习的位置编码参数
-        # num_patches: patch的数量
-        # embed_dim: 每个位置编码向量的维度
-        # 初始化为全0，在训练过程中会学习合适的位置编码值
         self.pos_encoder = nn.Parameter(torch.zeros(num_patches, embed_dim))
         self.layers = nn.ModuleList([
             TransformerBlock(embed_dim, num_heads, ff_dim, dropout)
             for _ in range(num_layers)
         ])
-        self.output_layer = nn.Linear(embed_dim, 256)
+        # 注意：如果 embed_dim 已经是 256，这个线性层可能不是必须的，
+        # 但保留它通常无害，除非有特定原因要移除。
+        self.output_layer = nn.Linear(embed_dim, 256) 
 
     def forward(self, x):
-        # 输入形状: [num_patches, batch_size, embed_dim] [25, 2, 256]
-        # 添加位置编码
-        x = x + self.pos_encoder.unsqueeze(1) # [25, 2, 256]
+        # 输入形状: [num_patches, batch_size, embed_dim] e.g., [25, 2, 256]
+        x = x + self.pos_encoder.unsqueeze(1) # 添加位置编码
         
         # 通过Transformer层
         for layer in self.layers:
             x = layer(x)
             
-        # 输出层调整 [batch_size, 256, num_patches]
+        # 输出层调整
         x = self.output_layer(x)  # [num_patches, batch_size, 256]
-        x = x.permute(1, 2, 0)    # 转换到[batch_size, 256, num_patches] [2,256,25]
+        x = x.permute(1, 2, 0)    # 转换到 [batch_size, 256, num_patches] e.g., [2, 256, 25]
         
-        # 上采样回原始长度 [batch_size, 256, seq_len]
-        # x = nn.functional.interpolate(x, size=2500, mode='linear', align_corners=False)
+        # 不在此处进行上采样，将上采样移至主模型
         return x
 
 class TransformerSegmentation(nn.Module):
@@ -103,36 +99,35 @@ class TransformerSegmentation(nn.Module):
         self.mode = mode
         input_channels = 1 if mode == 'time' else 40
         patch_size = 100
-        num_patches = input_size//patch_size
+        num_patches = input_size // patch_size
+        embed_dim = 256 # 定义 embed_dim
         
         self.patch_embed = nn.Conv1d(
             in_channels=input_channels,
-            out_channels=256,
+            out_channels=embed_dim, # 使用定义的 embed_dim
             kernel_size=patch_size,
             stride=patch_size
         )
         self.transformer = TransformerEncoder(
             num_patches=num_patches,
-            embed_dim=256,
+            embed_dim=embed_dim, # 使用定义的 embed_dim
             num_heads=8,
             ff_dim=512,
             num_layers=3,
             dropout=0.1
         )
         
-        # 重新调整解码器结构以精确输出2500长度
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose1d(256, 128, kernel_size=8, stride=5),  # 25 -> 121
-            nn.ReLU(),
-            nn.ConvTranspose1d(128, 64, kernel_size=8, stride=2),   # 121 -> 250
-            nn.ReLU(),
-            nn.ConvTranspose1d(64, num_classes, kernel_size=9, stride=10)  # 250 -> 2500
-        )
+        # 移除复杂的解码器，替换为简单的上采样和最终卷积层
+        # self.decoder = nn.Sequential(...) # 移除旧的解码器定义
+
+        # 添加最终的分类卷积层
+        self.final_conv = nn.Conv1d(embed_dim, num_classes, kernel_size=1)
+        self.input_size = input_size # 保存 input_size 以便在 forward 中使用
         
     def forward(self, x):
-        # 输入形状: [batch_size, channels, seq_len] [2,40,2500]
+        # 输入形状: [batch_size, channels, seq_len] e.g., [2, 1, 2500] or [2, 40, 2500]
 
-        # 输入验证
+        # 输入验证 (保持不变)
         if x.dim() != 3:
             raise ValueError(f"输入形状应为[batch, channels, seq_len], 但得到的是{x.shape}")
         if self.mode == 'time' and x.size(1) != 1:
@@ -145,15 +140,21 @@ class TransformerSegmentation(nn.Module):
         x = x.permute(2, 0, 1)
         
         # Transformer处理
-        features = self.transformer(x)  # [batch_size, 256, 25]
+        features = self.transformer(x)  # [batch_size, embed_dim, num_patches] e.g., [2, 256, 25]
         
-        # 使用调整后的解码器结构
-        out = self.decoder(features)  # [2, 5, 2500] [batch_size, num_classes, seq_len]seq_len有时候不是2500
+        # 上采样回原始序列长度
+        # 使用 'linear' 或 'nearest' 插值模式，取决于具体需求
+        # align_corners=False 通常是推荐的设置
+        features_interpolated = nn.functional.interpolate(
+            features, 
+            size=self.input_size, # 上采样到原始输入长度
+            mode='linear', 
+            align_corners=False
+        ) # [batch_size, embed_dim, seq_len] e.g., [2, 256, 2500]
         
-        # 确保输出长度正确
-        if out.size(2) != 2500:
-            out = nn.functional.interpolate(out, size=2500, mode='linear', align_corners=False)
-            
+        # 应用最终的卷积层进行分类
+        out = self.final_conv(features_interpolated) # [batch_size, num_classes, seq_len] e.g., [2, 5, 2500]
+
         return out
 
 if __name__ == "__main__":
