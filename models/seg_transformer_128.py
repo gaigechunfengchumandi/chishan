@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
+import matplotlib.pyplot as plt
 
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
@@ -88,28 +89,94 @@ class TransformerSegmentation128(nn.Module):
   
     def forward(self, x): # x(2,1,1280)
         residual = self.residual_conv(x)# residual (2,128,1280)
-        residual = self.residual_pool(residual)  # Match dimensions        residual (2,128,10)
-        x = self.patch_embed(x)  # (batch, 128, num_patches) (2,128,10)
-        x = x + residual  # Now dimensions match  (2,128,10)
+        residual = self.residual_pool(residual)  # Match dimensions residual (2,128,10)
+        x_patch = self.patch_embed(x)  # (batch, 128, num_patches) (2,128,10)
+        x = x_patch + residual  # Now dimensions match  (2,128,10)
         x = x.permute(2, 0, 1)  #(10,2,128)
         
         features = self.transformer(x) # （2，128，10）
+        out_features = self.conv_last(features) # （2，5，10）
+        out = self.upsampling(out_features) # (2, 5, 1280)
+        
+        # Return both output and features
+        return out, x_patch
 
-        out = self.conv_last(features) # （2，5，10）
+def plot_features(features, save_path=None):
+    """
+    使用黄绿色主题热力图可视化特征图，颜色亮度表示概率值
+    Args:
+        features: 特征图张量 (batch_size, channels, length)
+        save_path: 图片保存路径，如果为None则直接显示
+    """
+    features = features.detach().cpu().numpy()
+    batch_size, channels, length = features.shape
+    
+    plt.figure(figsize=(15, 5))
+    # 使用黄绿色主题(YlGn)
+    img = plt.imshow(features[0], cmap='YlGn', aspect='auto',
+                    interpolation='nearest', vmin=0, vmax=1)
+    plt.colorbar(img, label='Probability')
+    plt.title('Feature Maps Heatmap (Yellow-Green Theme)')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Channels')
+    
+    # 添加网格线
+    plt.grid(True, color='black', linestyle='-', linewidth=0.5)
+    # 设置网格线位置
+    plt.xticks(np.arange(-0.5, 10, 1), [])
+    # 修改yticks设置，将网格线放在通道之间
+    plt.yticks(np.arange(0, channels, 1), [])
+    # 显示通道标签（位置在单元格中心）
+    plt.yticks(np.arange(0.5, channels+0.5, 1), [f'Ch {i}' for i in range(channels)])
+    
+    if save_path:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
 
-        out = self.upsampling(out) # 使用线性插值将特征图上采样到原始输入大小(1280) (2, 5, 1280)
-        return out
+def plot_patch_features(features, save_path=None):
+    """
+    可视化Patch Embedding后的特征图
+    Args:
+        features: 特征图张量 (batch_size, channels, length)
+        save_path: 图片保存路径，如果为None则直接显示
+    """
+    features = features.detach().cpu().numpy()
+    batch_size, channels, length = features.shape
+    
+    plt.figure(figsize=(15, 5))
+    # 使用蓝紫色主题(PuRd)
+    img = plt.imshow(features[0], cmap='PuRd', aspect='auto',
+                    interpolation='nearest', vmin=features.min(), vmax=features.max())
+    plt.colorbar(img, label='Feature Value')
+    plt.title('Patch Embedding Features Heatmap (Purple-Red Theme)')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Channels')
+    
+    # 添加网格线
+    plt.grid(True, color='black', linestyle='-', linewidth=0.5)
+    plt.xticks(np.arange(-0.5, length, 1), [])
+    plt.yticks(np.arange(0, channels, 1), [])
+    # 每10个通道显示一个标签
+    plt.yticks(np.arange(0.5, channels+0.5, 10), [f'Ch {i}' for i in range(0, channels, 10)])
+    
+    if save_path:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
 
 if __name__ == "__main__":
     # Test the model
     model = TransformerSegmentation128(input_size=1280, num_classes=5)
-    writer = SummaryWriter('runs/patch_128')
     test_input = torch.randn(2, 1, 1280)
-    output = model(test_input)
-    writer.add_graph(model, test_input)
-    writer.close()
+    output, features = model(test_input)
+    
     print(f"Input shape: {test_input.shape}")
     print(f"Output shape: {output.shape}")
-
-    print("\nTensorBoard数据已写入。请运行以下命令查看:")
-    print("tensorboard --logdir=/Users/xingyulu/Public/physionet/runs/patch_128")
+    print(f"Features shape: {features.shape}")
+    
+    # 可视化特征图
+    plot_patch_features(features)
