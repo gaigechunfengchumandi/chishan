@@ -9,24 +9,60 @@ import numpy as np
 torch.manual_seed(42)
 
 class ECGDataset(Dataset):
-    def __init__(self, data_dir, mode='time'):
+    def __init__(self, data_dir, mode='time', augment=False):
         self.data_dir = data_dir
         self.file_list = list(self.data_dir.glob('*.npy'))
         self.mode = mode
+        self.augment = augment  # 新增数据增强开关
+        # 如果启用数据增强,生成所有可能的位置交换对
+        # 例如,对于长度为10的序列,生成(0,1),(0,2)...(8,9)等45个交换对
+        # 如果不启用数据增强,则返回空列表
+        self.augment_pairs = [(i,j) for i in range(10) for j in range(i+1,10)] if augment else []
+
         
     def __len__(self):
-        return len(self.file_list)
+        # 如果是增强模式，每个有效样本会产生45个增强样本
+        return len(self.file_list) * (1 + len(self.augment_pairs)) if self.augment else len(self.file_list)
+
     
     def __getitem__(self, idx):
-        data = np.load(self.file_list[idx])
+        # 根据是否启用数据增强来计算实际的文件索引和配对索引
+        if self.augment:
+            # 计算原始文件索引:总样本数除以每个样本产生的增强样本数
+            file_idx = idx // (1 + len(self.augment_pairs))
+            # 计算增强配对索引:总样本数对每个样本产生的增强样本数取余
+            pair_idx = idx % (1 + len(self.augment_pairs)) - 1
+        else:
+            # 不进行数据增强时,直接使用原始索引
+            file_idx = idx
+            pair_idx = -1
+
+        # 加载数据文件
+        data = np.load(self.file_list[file_idx])
+        # 实际访问的文件索引会通过file_idx来访问原始文件
+        # 这种设计使得：
+        # - 每个原始样本会被访问多次(1次原始+多次增强)
+        # - 但DataLoader看到的 idx 仍然是连续递增的
+        
         if self.mode == 'time':  
-            signal = data[:, 0].astype(np.float32).squeeze()
-            label = data[:, 1].astype(np.int64).squeeze()
+            # 时域模式:提取信号和标签
+            signal = data[:, 0].astype(np.float32).squeeze()  # 第一列为信号数据
+            label = data[:, 1].astype(np.int64).squeeze()    # 第二列为标签数据
 
             # 标准化 (假设ECG信号范围在±5mV之间)
-            signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
+            signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)  # Z-score标准化
             signal = np.clip(signal, -5.0, 5.0) / 5.0  # 归一化到[-1, 1]
 
+            # 如果启用数据增强且信号长度为1280(10个心拍)，执行信号和标签的心拍互换
+            if pair_idx >= 0 and len(signal) == 1280:
+                i, j = self.augment_pairs[pair_idx]  # 获取要交换的心拍索引对
+                signal = signal.copy()  # 创建信号的副本
+                label = label.copy()    # 创建标签的副本
+                # 交换指定心拍的信号和标签(每个心拍128个点)
+                signal[i*128:(i+1)*128], signal[j*128:(j+1)*128] = signal[j*128:(j+1)*128].copy(), signal[i*128:(i+1)*128].copy()
+                label[i*128:(i+1)*128], label[j*128:(j+1)*128] = label[j*128:(j+1)*128].copy(), label[i*128:(i+1)*128].copy()
+            
+            # 将numpy数组转换为PyTorch张量并返回
             return torch.tensor(signal), torch.tensor(label)
 
         elif self.mode == 'fsst':
@@ -38,9 +74,13 @@ class ECGDataset(Dataset):
             signal = fsst_data[:-1, :].astype(np.float32)  # 前40行是特征
             label = fsst_data[-1, :].astype(np.float32)    # 最后一行是标签
             
+            # 将numpy数组转换为PyTorch张量并返回
             return torch.tensor(signal), torch.tensor(label)
         else:
+            # 如果模式既不是time也不是fsst,抛出异常
             raise ValueError(f"不支持的模式: {self.mode}")
+
+
 
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):

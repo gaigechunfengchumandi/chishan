@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import DataLoader
 import os
@@ -10,14 +9,20 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import shutil
 from tqdm import tqdm  
 
-
-
 # 如果有其他自定义模块或类需要导入，请确保它们在项目路径中可用
 import sys
-sys.path.append('/Users/xingyulu/Public/physionet')
-sys.path.append('/Users/xingyulu/Public/physionet/utils/fsst_convert')
-from models.seg_transformer import TransformerSegmentation, ECGDataset
+sys.path.append('/home/devel/code/monitor/physionet')
+sys.path.append('/home/devel/code/monitor/physionet/utils/fsst_convert')
+from models.seg_transformer128_wav2vec import TransformerSegmentation128, ECGDataset
 
+import torch.nn.functional as F
+
+'''
+readme
+    每一次训练前要去网络脚本里改这个
+    return out #, out_featrues
+'''
+        
 
 # 结合和了时间和频率两种模式的训练脚本
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, 
@@ -63,14 +68,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                          leave=False)
         
         for batch_idx, (signals, labels) in batch_pbar:
-            signals = signals.to(device) # shape(batch_size, 2500)
+            signals = signals.to(device) # shape(batch_size, 1280)
             signals = signals.unsqueeze(1) # Add a channel dimension, shape [batch_size, 1, length] inorder to match the Unet's input shape
-            # 如果是fsst，上面这行就注销掉，不然会报错，这里因为不再训练了，就不再这里封装了
-            labels = labels.long().to(device)  # 提前转换类型 shape(batch_size, 2500)
+            labels = labels[:, ::128].long().to(device)  # 提前转换类型 shape(batch_size, 10)
 
             optimizer.zero_grad()
             # 前向传播
-            outputs = model(signals) #outputs shape(batch_size, 5, 2500)
+            outputs = model(signals) #outputs shape(batch_size, 5, 10)
 
             # 获取预测类别并计算准确率
             _, preds = torch.max(outputs, dim=1)
@@ -110,12 +114,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         with torch.no_grad():  # 确保验证阶段不计算梯度
             for signals, labels in val_pbar:
                 # 数据转移到设备并转换标签类型
-                signals = signals.to(device) # shape(batch_size, 2500)
+                signals = signals.to(device) # shape(batch_size, 1280)
                 signals = signals.unsqueeze(1) # shape [batch_size, 1, length] inorder to match the Unet's input shape
-                labels = labels.long().to(device)  # 转换类型 shape(batch_size, 2500)
+                labels = labels[:, ::128].long().to(device)  # 转换类型 shape(batch_size, 10)
                 
                 # 前向传播
-                outputs = model(signals)  #outputs shape(batch_size, 5, 2500)
+                outputs = model(signals)  #outputs shape(batch_size, 5, 1280)
                 
                 # 计算损失
                 loss = criterion(outputs, labels)
@@ -165,40 +169,46 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
                 print(f'Early stopping triggered after {epoch+1} epochs')
                 break
     return history
-def evaluate_model(model, test_loader, device='cuda'):
+    
+def evaluate_model(model, test_loader, device='cuda', num_classes=5):
     model = model.to(device)
     model.eval()
     
     all_preds = []
     all_labels = []
+    all_probs = []
     
     with torch.no_grad():
         for signals, labels in test_loader:
-            signals, labels = signals.to(device), labels.to(device)
-
-            signals = signals.unsqueeze(1) # Add a channel dimension, resulting in shape [batch_size, 1, length]
-            labels = labels.long()
-
-            # 前向传播
-            outputs = model(signals) #outputs shape(batch_size, 5, 2500)
+            signals = signals.unsqueeze(1).to(device)
+            labels = labels[:, ::128].long().to(device)
             
-            # 获取预测类别 (形状 [batch_size, 2500])
-            _, preds = torch.max(outputs, dim=1)  # 修改为dim=2以匹配输出形状
+            outputs = model(signals)
+            probs = F.softmax(outputs, dim=1)
             
-            # 收集预测结果和标签
+            _, preds = torch.max(outputs, dim=1)
+            
             all_preds.append(preds.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
+            all_probs.append(probs.cpu().numpy())
     
-    # 合并所有批次的结果
+    # 合并所有批次结果
     all_preds = np.concatenate(all_preds).flatten()
     all_labels = np.concatenate(all_labels).flatten()
+    all_probs = np.concatenate(all_probs)
     
-    # 计算评估指标
+    # 计算多分类评估指标
     metrics = {
         'accuracy': accuracy_score(all_labels, all_preds),
-        'precision': precision_score(all_labels, all_preds, average='macro'),
-        'recall': recall_score(all_labels, all_preds, average='macro'),
-        'f1': f1_score(all_labels, all_preds, average='macro')
+        'precision_macro': precision_score(all_labels, all_preds, average='macro'),
+        'recall_macro': recall_score(all_labels, all_preds, average='macro'),
+        'f1_macro': f1_score(all_labels, all_preds, average='macro'),
+        'precision_weighted': precision_score(all_labels, all_preds, average='weighted'),
+        'recall_weighted': recall_score(all_labels, all_preds, average='weighted'),
+        'f1_weighted': f1_score(all_labels, all_preds, average='weighted'),
+        'roc_auc_ovo': roc_auc_score(all_labels, all_probs, multi_class='ovo', average='macro'),
+        'roc_auc_ovr': roc_auc_score(all_labels, all_probs, multi_class='ovr', average='macro'),
+        'confusion_matrix': confusion_matrix(all_labels, all_preds).tolist()
     }
     
     return metrics
@@ -243,7 +253,8 @@ def plot_training_history(history, save_path=None):
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f'Training history plot saved to {save_path}')
     
-    plt.show()
+    # plt.show()
+
 
 
 def main():
@@ -254,14 +265,14 @@ def main():
     torch.manual_seed(42)
     np.random.seed(42)
     # 配置参数
-    data_dir = Path('/Users/xingyulu/Public/afafaf/房颤与非房颤/用2例数据尝试训练')  # 修改为Path对象
-    batch_size = 4 # 批次大小
+    data_dir = '/home/devel/监护共享数据/01-成人数据20250304/ClinicdatDB/ClinicDB/尝试训练'
+    batch_size = 128 # 批次大小
     learning_rate = 0.0001
-    num_epochs = 40
+    num_epochs = 100
     patience = 10
-    data_mode = 'time' # 这里要指定是'fsst'还是'time'模式
-    model_save_path = '/Users/xingyulu/Public/physionet/models/saved/af_segmentation_best.pth'
-    history_plot_path = '/Users/xingyulu/Public/physionet/result/training_history.png'
+    model_save_path = '/home/devel/code/monitor/physionet/models/saved/clinicDB_995.pth'
+    history_plot_path = '/home/devel/code/monitor/physionet/result/training_history.png'
+    
     
     # region 1.0 数据读取和模型配置
     # 检查CUDA是否可用
@@ -272,14 +283,15 @@ def main():
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
     os.makedirs(os.path.dirname(history_plot_path), exist_ok=True)
 
-    train_dir = data_dir / 'train'  # 使用Path对象的路径拼接
-    val_dir = data_dir / 'val'
-    test_dir = data_dir / 'test'
+    
+    train_dir = os.path.join(data_dir, 'train')
+    val_dir = os.path.join(data_dir, 'val')
+    test_dir = os.path.join(data_dir, 'test')
 
     # 创建数据集和数据加载器
-    train_dataset = ECGDataset(train_dir,data_mode) 
-    val_dataset = ECGDataset(val_dir,data_mode)
-    test_dataset = ECGDataset(test_dir,data_mode)
+    train_dataset = ECGDataset(train_dir, augment=False) # 如果开启数据增强，训练的时常会增加45倍
+    val_dataset = ECGDataset(val_dir, augment=False)
+    test_dataset = ECGDataset(test_dir, augment=False)
     
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -291,7 +303,7 @@ def main():
     print(f'测试集大小: {len(test_dataset)}')
     
     # 初始化模型
-    model = TransformerSegmentation(input_size=2500, mode=data_mode)
+    model = TransformerSegmentation128(input_size=1280)
     print(f'模型参数总数: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
     
     # 定义损失函数、优化器和学习率调度器
@@ -302,7 +314,24 @@ def main():
     )
 
     # endregion 1.0
+    
+    # region 1.1 模型训练前添加参数验证
+    sample, label = train_dataset[0]
+    print(f"输入形状验证: 样本形状={sample.shape}（应为[1280]）, 标签形状={label.shape}（应为[1280]）")
+    
+    
+    # 检查是否存在非0/1标签
+    invalid_labels = ((label != 0) & (label != 1)).sum()
+    print(f"无效标签数量: {invalid_labels}")
+    print(f"信号形状: {sample.shape}, 标签形状: {label.shape}")
+    print(f"标签取值范围: min={label.min().item():.4f}, max={label.max().item():.4f}")
+    
+    # 检查是否包含异常值
+    unique_labels = torch.unique(label)
+    print(f"标签唯一值: {unique_labels}")
+    # endregion 1.1
 
+    
     # 训练模型
     print('开始训练模型...')
     history = train_model(
@@ -317,12 +346,7 @@ def main():
         patience=patience,
         model_save_path=model_save_path
     )
-    
-    # 添加数据验证
-    print(f"验证训练集第一个样本: {train_dataset[0]}")
-    print(f"验证验证集第一个样本: {val_dataset[0]}")
-    print(f"验证测试集第一个样本: {test_dataset[0]}")
-    
+
     
     # 绘制训练历史记录
     plot_training_history(history, save_path=history_plot_path)
@@ -344,6 +368,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

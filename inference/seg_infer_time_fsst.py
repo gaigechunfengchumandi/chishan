@@ -12,8 +12,6 @@ from utils.fsst_convert.time2fsst_cls import time2fsst_without_label
 
 
 # 房颤的推理代码和室颤的代码不同，室颤的数据事没有标签的，而目前所有房颤的代码都有标签
-
-
 def predict_signal(model, signal, device='cuda', window_size=2500):
     """对单个信号进行预测"""
     model.eval()
@@ -24,9 +22,7 @@ def predict_signal(model, signal, device='cuda', window_size=2500):
     
     # 转换为张量并调整维度
     signal_tensor = torch.tensor(signal, dtype=torch.float32).to(device)
-    signal_tensor = signal_tensor.unsqueeze(0)  # 添加batch和channel维度 [1, 2500]
-    # 验证一下形状
-    # print(f'signal_tensor shape: {signal_tensor.shape}', '正确的shape应该是[1, 2500]')
+    signal_tensor = signal_tensor.unsqueeze(0).unsqueeze(0)   # 添加batch和channel维度 [1, 1, 1280]
     
     with torch.no_grad():
         # 前向传播
@@ -95,6 +91,52 @@ def visualize_and_save_signal(signal, prediction, file_name, picture_path):
         print(f"处理文件 {file_name} 时出错: {e}")
 
 
+def calculate_heartbeat_metrics(prediction, labels, heartbeat_length=128):
+    """
+    计算心拍级别的评估指标
+    
+    参数:
+        prediction: 预测结果数组
+        labels: 真实标签数组
+        heartbeat_length: 每个心拍的长度(默认为128)
+    
+    返回:
+        recall: 检出率
+        precision: 检准率
+        f1_score: F1分数
+    """
+    heartbeats = len(prediction) // heartbeat_length
+    true_positives = 0
+    false_positives = 0
+    false_negatives = 0
+    
+    for i in range(heartbeats):
+        start = i * heartbeat_length
+        end = start + heartbeat_length
+        
+        pred_beat = prediction[start:end]
+        true_beat = labels[start:end]
+        
+        # 检出率计算
+        if np.any(true_beat != 0):
+            if np.any(pred_beat != 0):
+                true_positives += 1
+            else:
+                false_negatives += 1
+        
+        # 检准率计算
+        if np.any(pred_beat != 0):
+            if not np.any(true_beat != 0):
+                false_positives += 1
+
+    # 计算指标
+    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    return recall, precision, f1_score
+            
+
 def main():
     # 配置参数
     model_path = '/Users/xingyulu/Public/physionet/models/saved/af_segmentation_best_time1.pth'
@@ -119,6 +161,11 @@ def main():
     print(f'找到 {len(files)} 个信号文件')
     
     # 对每个信号文件进行预测和可视化
+    total_recall = 0
+    total_precision = 0
+    total_f1 = 0
+    file_count = 0
+    
     for file_path in files:
         file_name = file_path.stem
         print(f'处理文件: {file_name}')
@@ -126,15 +173,31 @@ def main():
             # 加载单个文件
             data = np.load(file_path)
             signal = data[:, 0]  # 取第一列作为信号数据
+            labels = data[:, 1]  # 取第二列作为标签数据
             
             signal = np.squeeze(signal)  # 确保信号是1D的
             # 转换为FSST特征
             if data_mode == 'fsst':
-                fsst_signal = time2fsst_without_label(signal)  # shape: (40, 2500)
+                fsst_signal = time2fsst_without_label(signal)  
                 prediction = predict_signal(model, fsst_signal, device)
             else:
-                prediction = predict_signal(model, signal, device) #prediction（2500，）
+                prediction = predict_signal(model, signal, device) 
             
+
+            # 计算心拍级别评估指标
+            recall, precision, f1_score = calculate_heartbeat_metrics(prediction, labels)
+            
+            # 累加统计值
+            total_recall += recall
+            total_precision += precision
+            total_f1 += f1_score
+            file_count += 1
+            
+            print(f'文件 {file_name} 的心拍级别评估指标:')
+            print(f'检出率(Recall): {recall:.4f}')
+            print(f'检准率(Precision): {precision:.4f}')
+            print(f'F1分数: {f1_score:.4f}')
+
             # 可视化和保存结果
             visualize_and_save_signal(signal, prediction, file_name, output_picture_dir)
             
@@ -148,6 +211,12 @@ def main():
         except Exception as e:
             print(f"处理文件 {file_name} 时出错: {e}")
             continue
+    # 输出整体统计结果
+    if file_count > 0:
+        print('\n文件夹整体评估指标:')
+        print(f'平均检出率(Recall): {total_recall/file_count:.4f}')
+        print(f'平均检准率(Precision): {total_precision/file_count:.4f}')
+        print(f'平均F1分数: {total_f1/file_count:.4f}')
     print('推理完成！')
     print(f'结果保存在: {output_picture_dir}')
 

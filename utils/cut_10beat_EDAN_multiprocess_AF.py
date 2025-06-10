@@ -18,18 +18,24 @@ def label_transform_edan(ecg_labels):
     label_out = np.zeros(len(ecg_labels))
     for i in range(len(ecg_labels)):
         if ecg_labels[i] == 1 or ecg_labels[i] == 2 or ecg_labels[i] == 3 or \
-                ecg_labels[i] == 25 or ecg_labels[i] == 42 or ecg_labels[i] == 43 or ecg_labels[i] == 11 or ecg_labels[i] == 34 or ecg_labels[i] == 35:
+                ecg_labels[i] == 11 or ecg_labels[i] == 12 or ecg_labels[i] == 13 or \
+                ecg_labels[i] == 25 or ecg_labels[i] == 30 or ecg_labels[i] == 34 or \
+                ecg_labels[i] == 35 or ecg_labels[i] == 38 or ecg_labels[i] == 42 or \
+                ecg_labels[i] == 43 or ecg_labels[i] == 44:
             label_out[i] = 0 # N
 
-        # elif ecg_labels[i] == 8 or ecg_labels[i] == 9 or ecg_labels[i] == 7 or \
-        #         ecg_labels[i] == 4:
-        #     label_out[i] = 1
+        elif ecg_labels[i] == 4 or ecg_labels[i] == 7 or ecg_labels[i] == 8 or ecg_labels[i] == 9:
+            label_out[i] = 1 # S 
 
-        elif ecg_labels[i] == 5 or ecg_labels[i] == 10 or ecg_labels[i] == 41 or ecg_labels[i] == 17:
+        elif ecg_labels[i] == 5 or ecg_labels[i] == 6 or ecg_labels[i] == 10 or \
+                ecg_labels[i] == 15 or ecg_labels[i] == 17 or ecg_labels[i] == 41:
             label_out[i] = 2 # V
 
         elif ecg_labels[i] == 45 or ecg_labels[i] == 46:
-            label_out[i] = 4 # af
+            label_out[i] = 4 # AF
+
+        elif ecg_labels[i] == 33 :
+            label_out[i] = 5 # VF
 
         else:
             label_out[i] = 3 # else

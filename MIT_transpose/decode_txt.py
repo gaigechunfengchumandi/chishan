@@ -1,5 +1,3 @@
-
-
 import os
 import wfdb
 import numpy as np
@@ -8,6 +6,7 @@ from pathlib import Path
 from scipy.signal import resample
 from scipy import signal
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def convert_wfdb_to_training_data(input_dir, output_dir):
     """
@@ -34,20 +33,19 @@ def convert_wfdb_to_training_data(input_dir, output_dir):
         try:
             record_name = dat_file[:-4]
             
-            # 读取WFDB记录和注释文件
-            record = wfdb.rdrecord(os.path.join(input_dir, record_name))
-
-            # 直接返回注释的数字编码label_store​（即WFDB内部存储的整数值），而非解析后的字符标签。这样就直接不用symbols了
+            # 读取WFDB注释文件（保留）
             annotations = wfdb.rdann(os.path.join(input_dir, record_name), 'atr', return_label_elements=['label_store'])
             
-            # 获取信号数据和注释信息
-            signals= record.p_signal
+            # 从txt读取信号数据
+            txt_path = os.path.join(input_dir, f"{record_name}.txt")
+            signals = np.loadtxt(txt_path)
+            # 若signals是一维，需reshape为二维
+            if signals.ndim == 1:
+                signals = signals.reshape(-1, 1)
 
             # 处理所有导联中的NaN值
             for lead in range(signals.shape[1]):
                 nan_indices = np.where(np.isnan(signals[:,lead]))[0]
-                
-                # 用前后值的均值替换NaN
                 for idx in nan_indices:
                     prev_val = signals[idx-1,lead] if idx > 0 else signals[idx+1,lead]
                     next_val = signals[idx+1,lead] if idx < len(signals)-1 else signals[idx-1,lead]
@@ -60,8 +58,7 @@ def convert_wfdb_to_training_data(input_dir, output_dir):
             for i, group_data in enumerate(groups):
                 output_path = os.path.join(output_dir, f"{record_name}_group_{i}.npy")
                 np.save(output_path, group_data)
-            
-                
+                        
             print(f"成功转换: {record_name}")
             
         except Exception as e:
@@ -135,37 +132,53 @@ def process_ecg_data(signals, annotations):
         start = int(group_samples[0] - 0.5*group_rr_intervals[0])
         start = max(0, start)  # 确保start不小于0
         end = int(group_samples[-1] + 0.9*group_rr_intervals[-1])
-        count_10_beat = signals[start:end, :]
-        
+        count_10_beat = signals[start:end]  # 直接切片，无需逗号
         # 补0得到a矩阵
         a = np.pad(
             count_10_beat,
-            ((0,10000 - count_10_beat.shape[0]), (0,0)),
+            (0, 10000 - count_10_beat.shape[0]),  # 只需一维补零
             mode='constant',
             constant_values=0
         )
-        
         # 步骤4：拼接标签
-        # 将标签转换为(10,1)形状并复制4次以匹配导联维度
-        if len(group_symbols) !=10:
+        if len(group_symbols) != 10:
             continue
-        group_symbols = np.tile(np.array(group_symbols).reshape(10,1), (1,4))
-        b = np.concatenate([a, group_symbols], axis=0)  # 形状变为(10010,4)
-
-        
+        group_symbols = np.array(group_symbols).reshape(10, 1)  # (10,1)
+        b = np.concatenate([a.reshape(-1, 1), group_symbols], axis=0)  # (10010,1)
         # 步骤5：拼接RR间期
-        # 将RR间期转换为(11,1)形状并复制4次以匹配导联维度
         if len(group_rr_intervals) != 11:
-            # 如果RR间期不足11个，跳过这个组
             continue
-        group_rr_intervals = np.tile(group_rr_intervals.reshape(11,1), (1,4)) # (11,4)
-        c = np.concatenate([b, group_rr_intervals], axis=0)  # 最终形状(10021,4)
-        # 添加打印最后20行数据的代码
-
-        processed_data.append(c)  # c的形状是(10021,4)
+        group_rr_intervals = group_rr_intervals.reshape(11, 1)  # (11,1)
+        c = np.concatenate([b, group_rr_intervals], axis=0)  # (10021,1)
+        processed_data.append(c)  # c的形状是(10021,1)
     
     return processed_data  # 返回列表而不是合并后的数组
 
+
+def plot_ecg_with_annotations(txt_path, annotations, lead=0, max_points=5000):
+    """
+    画出txt读取的心电信号，并在图中标出annotation.sample的位置
+    参数：
+        txt_path: txt文件路径
+        annotations: wfdb.rdann返回的注释对象
+        lead: 选择画哪一导联（默认0）
+        max_points: 最多显示多少采样点（防止太长）
+    """
+    signals = np.loadtxt(txt_path)
+    if signals.ndim == 1:
+        signals = signals.reshape(-1, 1)
+    signal = signals[:max_points, lead]
+    plt.figure(figsize=(15, 4))
+    plt.plot(signal, label=f'Lead {lead}')
+    # 标注annotation.sample
+    ann_samples = [s for s in annotations.sample if s < max_points]
+    plt.scatter(ann_samples, signal[ann_samples], color='red', marker='o', label='Annotations')
+    plt.title('ECG Signal with Annotations')
+    plt.xlabel('Sample Index')
+    plt.ylabel('Amplitude')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
     # 设置输入输出目录
